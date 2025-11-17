@@ -56,6 +56,7 @@ jobs:
           QCLOUD_SECRET_KEY: ${{ secrets.QCLOUD_SECRET_KEY }}
           R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
           R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+          VERSION_CONFIG_TOKEN: ${{ secrets.VERSION_CONFIG_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         with:
