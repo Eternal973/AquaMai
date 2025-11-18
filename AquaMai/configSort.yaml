@@ -106,6 +106,7 @@
   - Fancy.GamePlay.FixJudgeTouchHoldInNormalArea
   - Fancy.GamePlay.ReviveFinaleVSlide
   - Fancy.GamePlay.TapInHoldFix
+  - Fancy.CustomIntroCinematic
   - Fancy.TrackCamouflage
 
 不建议关闭:
