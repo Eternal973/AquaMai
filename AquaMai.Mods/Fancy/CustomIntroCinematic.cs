@@ -14,7 +14,6 @@ using MelonLoader;
 using Process;
 using UnityEngine;
 using UnityEngine.Video;
-using Monitor;
 
 namespace AquaMai.Mods.Fancy;
 
@@ -40,6 +39,12 @@ public class CustomIntroCinematic
             "使用 MaiChartManager 中的工具可以快速转换视频\n" +
             "效果演示: https://www.bilibili.com/video/BV1jTxVzjETG")]
     private static readonly string IntroMovieDir = "LocalAssets/IntroMovies";
+
+    [ConfigEntry(name: "仅在未玩过乐曲时播放",
+        zh: "开启后，仅当 1P 2P 双方均没有玩过这首乐曲时播放开场视频",
+        en: "Only play the intro cinematic when both players have not played the song")]
+    private static readonly bool onlyPlayWhenNotPlayed = false;
+
 
     private static bool _isInitialized = false;
 
@@ -924,9 +929,29 @@ public class CustomIntroCinematic
             Manager.Party.Party.IManager PartyManager = Manager.Party.Party.Party.Get();
             if (SingletonStateMachine<AmManager, AmManager.EState>.Instance.Backup.gameSetting.MachineGroupID != DB.MachineGroupID.OFF && PartyManager != null && PartyManager.IsJoinAndActive())
                 return true;
+            
+            //获取曲目ID
+            var musicId = GameManager.SelectMusicID[0];
+
+            if (onlyPlayWhenNotPlayed)
+            {
+                //任一玩家拥有曲目成绩时不生效
+                for (int i = 0; i < 4; ++i)
+                {
+                    var playerData = Singleton<UserDataManager>.Instance.GetUserData(i);
+                    if (playerData != null)
+                    {
+                        for (int j = 0; j < 6; ++j)
+                        {
+                            playerData.ScoreDic[j].TryGetValue(musicId, out UserScore musicScore);
+                            if (musicScore != null)
+                                return true;
+                        }
+                    }
+                }
+            }
 
             // 检查当前选择的歌曲是否为目标歌曲
-            var musicId = GameManager.SelectMusicID[0];
             if (_targetIDMovieDict.TryGetValue(musicId, out var videoPath))
             {
                 MelonLogger.Msg($"[CustomIntroCinematic] Play intro cinematic for music {musicId}");
