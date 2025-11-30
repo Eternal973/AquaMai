@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO.Pipes;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using AMDaemon;
 using AquaMai.Config.Attributes;
 using AquaMai.Config.Types;
@@ -10,7 +12,10 @@ using AquaMai.Core.Helpers;
 using AquaMai.Mods.Tweaks;
 using HarmonyLib;
 using HidLibrary;
+using Main;
+using Manager;
 using MelonLoader;
+using UnityEngine;
 
 namespace AquaMai.Mods.GameSystem;
 
@@ -23,8 +28,9 @@ public class AdxHidInput
 {
     private static HidDevice[] adxController = new HidDevice[2];
     private static byte[,] inputBuf = new byte[2, 32];
+    private static byte[,] inputBufPending = new byte[2, 32];
     private static double[] td = [0, 0];
-    private static bool tdEnabled, keyEnabled;
+    private static bool tdEnabled, keyEnabled, pipeEnabled;
 
     private static void HidInputThread(int p)
     {
@@ -35,7 +41,12 @@ public class AdxHidInput
             if (report1P.Status != HidDeviceData.ReadStatus.Success || report1P.Data.Length <= 13) continue;
             for (int i = 0; i < 14; i++)
             {
-                inputBuf[p, i] = report1P.Data[i];
+                var newState = report1P.Data[i];
+                if (newState == 1 && inputBuf[p, i] == 0)
+                {
+                    inputBufPending[p, i] = 1;
+                }
+                inputBuf[p, i] = newState;
             }
         }
     }
@@ -58,6 +69,7 @@ public class AdxHidInput
             return;
         }
         if (rpt.Data[5] < 110) return;
+        pipeEnabled = true;
         if (!LedBrightnessControl.shouldEnableImplicitly)
         {
             LedBrightnessControl.shouldEnableImplicitly = true;
@@ -120,18 +132,29 @@ public class AdxHidInput
         JvsSwitchHook.RegisterAuxiliaryStateProvider(GetAuxiliaryState);
     }
 
-    private static bool IsButtonPushed(int playerNo, int buttonIndex1To8) => buttonIndex1To8 switch
+    private static bool IsButtonPushed(int playerNo, int buttonIndex1To8)
     {
-        1 => inputBuf[playerNo, 5] == 1,
-        2 => inputBuf[playerNo, 4] == 1,
-        3 => inputBuf[playerNo, 3] == 1,
-        4 => inputBuf[playerNo, 2] == 1,
-        5 => inputBuf[playerNo, 9] == 1,
-        6 => inputBuf[playerNo, 8] == 1,
-        7 => inputBuf[playerNo, 7] == 1,
-        8 => inputBuf[playerNo, 6] == 1,
-        _ => false,
-    };
+        int bufIndex = buttonIndex1To8 switch
+        {
+            1 => 5,
+            2 => 4,
+            3 => 3,
+            4 => 2,
+            5 => 9,
+            6 => 8,
+            7 => 7,
+            8 => 6,
+            _ => -1,
+        };
+        if (bufIndex < 0) return false;
+
+        if (inputBufPending[playerNo, bufIndex] == 1)
+        {
+            inputBufPending[playerNo, bufIndex] = 0;
+            return true;
+        }
+        return inputBuf[playerNo, bufIndex] == 1;
+    }
 
     [ConfigEntry(name: "按钮 1（向上的三角键）")]
     private static readonly IOKeyMap button1 = IOKeyMap.Select1P;
@@ -155,8 +178,10 @@ public class AdxHidInput
         for (int i = 0; i < 4; i++)
         {
             var keyIndex = 10 + i;
-            var is1PPushed = inputBuf[0, keyIndex] == 1;
-            var is2PPushed = inputBuf[1, keyIndex] == 1;
+            var is1PPushed = inputBufPending[0, keyIndex] == 1 || inputBuf[0, keyIndex] == 1;
+            var is2PPushed = inputBufPending[1, keyIndex] == 1 || inputBuf[1, keyIndex] == 1;
+            inputBufPending[0, keyIndex] = 0;
+            inputBufPending[1, keyIndex] = 0;
             switch (keyMaps[i])
             {
                 case IOKeyMap.Select1P:
@@ -235,6 +260,120 @@ public class AdxHidInput
             }
 
             return ret;
+        }
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(GameMainObject), "Awake")]
+    [EnableIf(nameof(pipeEnabled))]
+    public static void OnGameMainObjectAwake(GameMainObject __instance)
+    {
+        __instance.gameObject.AddComponent<Pipe>();
+    }
+
+    private class Pipe : MonoBehaviour
+    {
+        private NamedPipeServerStream pipeServer;
+        private bool isConnecting;
+
+        private void Start()
+        {
+            StartPipeServer();
+        }
+
+        private void StartPipeServer()
+        {
+            if (isConnecting || (pipeServer != null && pipeServer.IsConnected))
+            {
+                return;
+            }
+
+            isConnecting = true;
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    try
+                    {
+                        pipeServer?.Dispose();
+                    }
+                    catch
+                    {
+                    }
+
+                    pipeServer = new NamedPipeServerStream(
+                        "AquaMai.AdxHidInput",
+                        PipeDirection.InOut,
+                        1,
+                        PipeTransmissionMode.Byte
+                    );
+
+                    pipeServer.WaitForConnection();
+                }
+                catch (Exception e)
+                {
+                    pipeServer = null;
+                }
+                finally
+                {
+                    isConnecting = false;
+                }
+            });
+        }
+
+        private void Update()
+        {
+            if (pipeServer == null || !pipeServer.IsConnected)
+            {
+                if (!isConnecting)
+                {
+                    StartPipeServer();
+                }
+                return;
+            }
+
+            try
+            {
+                var report = new byte[34 * 2 + 1];
+                report[0] = 1;
+                for (var player = 0; player < 2; player++)
+                {
+                    for (var area = 0; area < 34; area++)
+                    {
+                        report[1 + player * 34 + area] =
+                            InputManager.GetTouchPanelAreaPush(player, (InputManager.TouchPanelArea)area)
+                                ? (byte)1
+                                : (byte)0;
+                    }
+                }
+
+                pipeServer.Write(report, 0, report.Length);
+            }
+            catch
+            {
+                try
+                {
+                    pipeServer?.Dispose();
+                }
+                catch
+                {
+                }
+
+                pipeServer = null;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            try
+            {
+                pipeServer?.Dispose();
+            }
+            catch
+            {
+            }
+            pipeServer = null;
         }
     }
 }
