@@ -8,6 +8,7 @@ using AquaMai.Core.Types;
 using DB;
 using HarmonyLib;
 using Manager.UserDatas;
+using MelonLoader;
 using Monitor;
 using Monitor.Game;
 using Process.SubSequence;
@@ -163,12 +164,16 @@ public static class GameSettingsManager
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(OptionSelectSequence), nameof(OptionSelectSequence.GetCategory))]
-    private static void GetCategory(ref bool isLeftButtonActive, ref bool isRightButtonActive, string __result)
+    private static void GetCategory(ref bool isLeftButtonActive, ref bool isRightButtonActive, string __result, UserOption __instance)
     {
         var option = settings.FirstOrDefault(it => it.Name == __result);
         if (option == null) return;
-        isLeftButtonActive = option.IsLeftButtonActive;
-        isRightButtonActive = option.IsRightButtonActive;
+        if (!userOptionToPlayer.TryGetValue(__instance, out var player))
+        {
+            return;
+        }
+        isLeftButtonActive = option.GetIsLeftButtonActive(player);
+        isRightButtonActive = option.GetIsRightButtonActive(player);
     }
 
     /// <summary>
@@ -204,31 +209,44 @@ public static class GameSettingsManager
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(UserOption), "GetFilePath")]
-    private static bool GetFilePath(OptionCategoryID category, int currentOptionIndex, ref string __result)
+    private static bool GetFilePath(OptionCategoryID category, int currentOptionIndex, ref string __result, UserOption __instance)
     {
         if ((int)category != ModCategoryId) return true;
         if (!IsValidIndex(currentOptionIndex)) return false;
-        __result = settings[currentOptionIndex].SpriteFile;
+        if (!userOptionToPlayer.TryGetValue(__instance, out var player))
+        {
+            __result = "错误的玩家 ID";
+            return false;
+        }
+        __result = settings[currentOptionIndex].GetSpriteFile(player);
         return false;
     }
 
-    // 由于加减按钮由我们自己控制，所以这个没有意义，只要让游戏觉得在范围内就行
-    // 这两个关系到点击屏幕的事件是否被响应
     [HarmonyPrefix]
     [HarmonyPatch(typeof(UserOption), "GetOptionValueIndex")]
-    private static bool GetOptionValueIndex(OptionCategoryID category, int currentOptionIndex, ref int __result)
+    private static bool GetOptionValueIndex(OptionCategoryID category, int currentOptionIndex, ref int __result, UserOption __instance)
     {
         if ((int)category != ModCategoryId) return true;
-        __result = 114514;
+        if (!IsValidIndex(currentOptionIndex) || !userOptionToPlayer.TryGetValue(__instance, out var player))
+        {
+            __result = 114514;
+            return false;
+        }
+        __result = settings[currentOptionIndex].GetOptionValueIndex(player);
         return false;
     }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(UserOption), "GetOptionMax")]
-    private static bool GetOptionMax(OptionCategoryID category, int currentOptionIndex, ref int __result)
+    private static bool GetOptionMax(OptionCategoryID category, int currentOptionIndex, ref int __result, UserOption __instance)
     {
         if ((int)category != ModCategoryId) return true;
-        __result = 1919810;
+        if (!IsValidIndex(currentOptionIndex) || !userOptionToPlayer.TryGetValue(__instance, out var player))
+        {
+            __result = 1919810;
+            return false;
+        }
+        __result = settings[currentOptionIndex].GetOptionMax(player);
         return false;
     }
 
