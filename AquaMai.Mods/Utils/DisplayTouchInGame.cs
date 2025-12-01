@@ -121,6 +121,7 @@ public static class DisplayTouchInGame
             canvas.transform.SetParent(sub, false);
             canvas.SetActive(displayType[i] > 0);
             canvasGameObjects[i] = canvas;
+            GameObject buttons = null;
 
             if (displayType[i] == 3)
             {
@@ -148,6 +149,15 @@ public static class DisplayTouchInGame
                 tmps[i] = t;
             }
 
+            if (displayType[i] != 3)
+            {
+                // init button display
+                buttons = new GameObject("Buttons");
+                buttons.transform.SetParent(canvas.transform, false);
+                buttons.transform.localPosition = Vector3.zero;
+                buttons.transform.localScale = Vector3.one * 450 / 1080f;
+            }
+
             var touchPanel = Object.Instantiate(prefab, canvas.transform, false);
             Object.Destroy(touchPanel.GetComponent<MouseTouchPanel>());
             foreach (Transform item in touchPanel.transform)
@@ -166,12 +176,6 @@ public static class DisplayTouchInGame
 
             if (displayType[i] != 3)
             {
-                // init button display
-                var buttons = new GameObject("Buttons");
-                buttons.transform.SetParent(canvas.transform, false);
-                buttons.transform.localPosition = Vector3.zero;
-                buttons.transform.localScale = Vector3.one * 450 / 1080f;
-
                 foreach (Transform item in touchPanel.transform)
                 {
                     var customGraphic = item.GetComponent<CustomGraphic>();
