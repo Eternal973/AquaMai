@@ -290,7 +290,7 @@ public class AdxHidInput
 
             isConnecting = true;
 
-            Task.Run(() =>
+            new Thread(() =>
             {
                 try
                 {
@@ -314,12 +314,16 @@ public class AdxHidInput
                 catch (Exception e)
                 {
                     pipeServer = null;
+                    MelonLogger.Msg($"[HidInput] Pipe Server Error: {e.Message}");
                 }
                 finally
                 {
                     isConnecting = false;
                 }
-            });
+            })
+            {
+                IsBackground = true
+            };
         }
 
         private void Update()
