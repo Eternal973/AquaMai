@@ -16,7 +16,7 @@ dotnet restore "./AquaMai.slnx"
 # ==========================================
 Write-Host "Generating BuildInfo..." -ForegroundColor Cyan
 try {
-    $gitDescribe = git describe --tags --long
+    $gitDescribe = git describe --tags
     # remove 'v' if exists
     if ($gitDescribe.StartsWith("v")) {
         $gitDescribe = $gitDescribe.Substring(1)
