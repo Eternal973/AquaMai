@@ -15,15 +15,18 @@ namespace AquaMai.Mods.GameSystem;
     defaultOn: true)]
 public static class OptionLoadFix
 {
+    [ConfigEntry(name: "自定义路径", en: "Custom path to the Option folder", zh: "自定义 Option 文件夹的路径（没事别填）")]
+    public static readonly string overridePath = "";
+
     [HarmonyPrefix]
     [HarmonyPatch(typeof(AppImage), "OptionMountRootPath", MethodType.Getter)]
     public static bool AppImageOptionMountRootPath(ref string __result)
     {
-        __result = Application.streamingAssetsPath;
+        __result = string.IsNullOrWhiteSpace(overridePath) ? Application.streamingAssetsPath : overridePath;
 
         return false;
     }
-    
+
     // 如果 optDir 也是 A 开头的话，结果会重复，需要去重
     [HarmonyPostfix]
     [HarmonyPatch(typeof(DataManager), "GetDirs")]

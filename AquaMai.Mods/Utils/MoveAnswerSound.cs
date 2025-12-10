@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using AquaMai.Config.Attributes;
+using AquaMai.Core.Attributes;
 using AquaMai.Core.Helpers;
 using AquaMai.Core.Resources;
 using AquaMai.Core.Types;
@@ -21,6 +22,7 @@ namespace AquaMai.Mods.Utils;
 [ConfigSection(
     name: "移动正解音",
     en: "Move answer sound")]
+[EnableGameVersion(23000)]
 public class MoveAnswerSound : IPlayerSettingsItem
 {
     [ConfigEntry(
@@ -28,19 +30,19 @@ public class MoveAnswerSound : IPlayerSettingsItem
         en: "Display in-game config entry for player. If disabled, the user's settings will be ignored.",
         zh: "在游戏内添加设置项给用户，使用户能够在游戏内调整正解音偏移量。如果关闭此选项，则就算用户之前设置过，也会忽略。")]
     private static readonly bool DisplayInGameConfig = true;
-    
+
     [ConfigEntry(
         name: "1P 偏移量",
         en: "Answer sound move value in ms, this value will be combined with user's setting in game. Increase this value to make the answer sound appear later, vice versa.",
         zh: "正解音偏移量，单位为毫秒，此设定值会与用户游戏内的设置相加。增大这个值将会使正解音出现得更晚，反之则更早。")]
     private static readonly float MoveValue_1P = 0f;
-    
+
     [ConfigEntry(
         name: "2P 偏移量",
         en: "Same as MoveValue_1P.",
         zh: "与 MoveValue_1P 作用相同。")]
     private static readonly float MoveValue_2P = 0f;
-    
+
     private static float[] userSettings = [0, 0];
     private static IPersistentStorage storage = new PlayerPrefsStorage();
 
@@ -50,7 +52,7 @@ public class MoveAnswerSound : IPlayerSettingsItem
         var moveValue = GetCabinSettingsValue(monitorIndex);
         return DisplayInGameConfig ? userSettings[monitorIndex] + moveValue : moveValue;
     }
-    
+
     private static float GetSettingsValue(int monitorIndex) => GetSettingsValue((uint)monitorIndex);
 
     #region 设置界面注入
@@ -64,11 +66,11 @@ public class MoveAnswerSound : IPlayerSettingsItem
     }
 
     public int Sort => 50;
-    public bool IsLeftButtonActive => true;
-    public bool IsRightButtonActive => true;
+    public bool GetIsLeftButtonActive(int player) => true;
+    public bool GetIsRightButtonActive(int player) => true;
     public string Name => Locale.GameSettingsNameMoveAnswerSound;
     public string Detail => Locale.GameSettingsDetailMoveAnswerSound;
-    public string SpriteFile => "UI_OPT_E_23_06";
+    public string GetSpriteFile(int player) => "UI_OPT_E_23_06";
     public string GetOptionValue(int player)
     {
         return (userSettings[player] == 0 ? GameSettingsManager.DefaultTag : GameSettingsManager.NormalTag) + userSettings[player] + Locale.MoveAnswerSoundUnit;
@@ -83,6 +85,9 @@ public class MoveAnswerSound : IPlayerSettingsItem
     {
         userSettings[player]--;
     }
+
+    public int GetOptionValueIndex(int player) => 114514;
+    public int GetOptionMax(int player) => 1919810;
 
     #endregion
 

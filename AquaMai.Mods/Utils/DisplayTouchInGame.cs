@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using AquaMai.Config.Attributes;
 using AquaMai.Config.Types;
+using AquaMai.Core.Attributes;
 using AquaMai.Core.Helpers;
 using AquaMai.Core.Resources;
 using AquaMai.Mods.UX.PracticeMode;
@@ -9,6 +10,7 @@ using HarmonyLib;
 using Manager;
 using MelonLoader;
 using Monitor;
+using Monitor.Game;
 using Process;
 using TMPro;
 using UnityEngine;
@@ -19,23 +21,33 @@ namespace AquaMai.Mods.Utils;
 
 [ConfigSection(
     name: "实时触摸显示",
-    zh: "在游戏过程中在副屏显示触摸输入，可用于调试吃和蹭的问题")]
+    zh: "在游戏过程中显示触摸输入，可用于调试吃和蹭的问题")]
+[EnableGameVersion(23000)]
 public static class DisplayTouchInGame
 {
     private static GameObject prefab;
     private static GameObject[] canvasGameObjects = new GameObject[2];
     private static TextMeshProUGUI tmp;
     private static TextMeshProUGUI[] tmps = new TextMeshProUGUI[2];
-
-    [ConfigEntry(
-        name: "将上屏改成白底",
-        en: "Display white background on top screen")]
-    public static bool whiteBackground = false;
+    // 0: 不显示，1: 上框透明底，2: 上框白底，3: 下框
+    public static int[] displayType = [0, 0];
 
     [ConfigEntry(
         name: "默认显示",
         zh: "关了的话，可以用按键切换显示")]
     public static bool defaultOn = true;
+
+    public static void OnBeforePatch()
+    {
+        if (defaultOn)
+        {
+            displayType = [1, 1];
+        }
+        else
+        {
+            displayType = [0, 0];
+        }
+    }
 
     [ConfigEntry(name: "切换显示按键")]
     public static readonly KeyCodeOrName key = KeyCodeOrName.None;
@@ -53,29 +65,24 @@ public static class DisplayTouchInGame
     public static void OnMusicSelectProcessUpdate()
     {
         if (!KeyListener.GetKeyDownOrLongPress(key, longPress)) return;
-        defaultOn = !defaultOn;
-        MessageHelper.ShowMessage(defaultOn ? Locale.NextPlayShowTouchDisplay : Locale.NextPlayHideTouchDisplay);
+        displayType = displayType[0] == 0 ? [1, 1] : [0, 0];
+        MessageHelper.ShowMessage(displayType[0] != 0 ? Locale.NextPlayShowTouchDisplay : Locale.NextPlayHideTouchDisplay);
     }
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(GameProcess), nameof(GameProcess.OnUpdate))]
     public static void OnGameProcessUpdate()
     {
-        if (whiteBackground && defaultOn)
+        for (int i = 0; i < 2; i++)
         {
-            foreach (var t in tmps)
-            {
-                t.text = $"{TimeSpan.FromMilliseconds(PracticeMode.CurrentPlayMsec):mm\\:ss\\.fff}";
-            }
+            if (displayType[i] != 2) continue;
+            tmps[i].text = $"{TimeSpan.FromMilliseconds(PracticeMode.CurrentPlayMsec):mm\\:ss\\.fff}";
         }
         if (!KeyListener.GetKeyDownOrLongPress(key, longPress)) return;
-        defaultOn = !defaultOn;
-        foreach (var go in canvasGameObjects)
+        displayType = displayType[0] == 0 ? [1, 1] : [0, 0];
+        for (int i = 0; i < 2; i++)
         {
-            if (go != null)
-            {
-                go.SetActive(defaultOn);
-            }
+            canvasGameObjects[i].SetActive(displayType[i] != 0);
         }
     }
 
@@ -86,14 +93,12 @@ public static class DisplayTouchInGame
         if (target != 0)
             return;
         prefab = targetMouseTouchPanel.gameObject;
-        MelonLogger.Msg("[DisplayTouchInGame] RegisterMouseTouchPanel");
     }
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(GameProcess), nameof(GameProcess.OnStart))]
     public static void OnGameStart(GameMonitor[] ____monitors)
     {
-        MelonLogger.Msg("[DisplayTouchInGame] OnGameStart");
         if (prefab == null)
         {
             MelonLogger.Error("[DisplayTouchInGame] prefab is null");
@@ -103,6 +108,10 @@ public static class DisplayTouchInGame
         for (int i = 0; i < 2; i++)
         {
             var sub = ____monitors[i].gameObject.transform.Find("Canvas/Sub");
+            if (displayType[i] == 3)
+            {
+                sub = Traverse.Create(____monitors[i]).Field<GameCtrl>("GameController").Value?.transform;
+            }
             if (sub == null)
             {
                 MelonLogger.Error($"[DisplayTouchInGame] sub is null for monitor {i}");
@@ -110,14 +119,26 @@ public static class DisplayTouchInGame
             }
             var canvas = new GameObject("[AquaMai] DisplayTouchInGame");
             canvas.transform.SetParent(sub, false);
-            canvas.SetActive(defaultOn);
+            canvas.SetActive(displayType[i] > 0);
             canvasGameObjects[i] = canvas;
+            GameObject buttons = null;
 
-            if (whiteBackground)
+            if (displayType[i] == 3)
+            {
+                var rect = canvas.AddComponent<RectTransform>();
+                rect.sizeDelta = new Vector2(1080, 1080);
+                rect.localPosition = Vector3.zero;
+                var canvasComp = canvas.AddComponent<Canvas>();
+                canvasComp.renderMode = RenderMode.WorldSpace;
+                canvasComp.sortingOrder = -32768;
+                // canvasComp.sortingOrder = 1;
+                // canvasComp.sortingLayerID = -385436797; // GameMovie
+            }
+            if (displayType[i] == 2)
             {
                 var rect = canvas.AddComponent<RectTransform>();
                 rect.sizeDelta = new Vector2(1080, 450);
-                rect.localPosition = new Vector3(0f, 0f, 0.1f);
+                rect.localPosition = Vector3.zero;
                 var img = canvas.AddComponent<Image>();
                 img.color = Color.white;
 
@@ -128,10 +149,14 @@ public static class DisplayTouchInGame
                 tmps[i] = t;
             }
 
-            var buttons = new GameObject("Buttons");
-            buttons.transform.SetParent(canvas.transform, false);
-            buttons.transform.localPosition = new Vector3(0f, 0f, 0.2f);
-            buttons.transform.localScale = Vector3.one * 450 / 1080f;
+            if (displayType[i] != 3)
+            {
+                // init button display
+                buttons = new GameObject("Buttons");
+                buttons.transform.SetParent(canvas.transform, false);
+                buttons.transform.localPosition = Vector3.zero;
+                buttons.transform.localScale = Vector3.one * 450 / 1080f;
+            }
 
             var touchPanel = Object.Instantiate(prefab, canvas.transform, false);
             Object.Destroy(touchPanel.GetComponent<MouseTouchPanel>());
@@ -144,23 +169,31 @@ public static class DisplayTouchInGame
                 }
                 Object.Destroy(item.GetComponent<MeshButton>());
                 Object.Destroy(item.GetComponent<Collider>());
-                if (item.name.StartsWith("A"))
-                {
-                    var btn = Object.Instantiate(item, buttons.transform, false);
-                    btn.name = item.name;
-                }
-                var customGraphic = item.GetComponent<CustomGraphic>();
-                customGraphic.color = Color.blue;
-                var tmp = item.GetComponentInChildren<TextMeshProUGUI>();
-                tmp.color = Color.black;
             }
-            touchPanel.transform.localScale = Vector3.one * 0.95f * 450 / 1080f;
-            touchPanel.transform.localPosition = new Vector3(0f, 0f, 0.3f);
+            touchPanel.transform.localPosition = Vector3.zero;
             var touchDisplay = touchPanel.AddComponent<Display>();
             touchDisplay.player = i;
-            var buttonDisplay = buttons.AddComponent<Display>();
-            buttonDisplay.player = i;
-            buttonDisplay.isButton = true;
+
+            if (displayType[i] != 3)
+            {
+                foreach (Transform item in touchPanel.transform)
+                {
+                    var customGraphic = item.GetComponent<CustomGraphic>();
+                    customGraphic.color = Color.blue;
+                    if (item.name.StartsWith("A"))
+                    {
+                        var btn = Object.Instantiate(item, buttons.transform, false);
+                        btn.name = item.name;
+                    }
+                    var tmp = item.GetComponentInChildren<TextMeshProUGUI>();
+                    tmp.color = Color.black;
+                }
+
+                touchPanel.transform.localScale = Vector3.one * 0.95f * 450 / 1080f;
+                var buttonDisplay = buttons.AddComponent<Display>();
+                buttonDisplay.player = i;
+                buttonDisplay.isButton = true;
+            }
         }
     }
 
@@ -185,6 +218,11 @@ public static class DisplayTouchInGame
                 CustomGraphic component = item.GetComponent<CustomGraphic>();
                 _buttonList.Add(component);
             }
+            if (displayType[player] == 3)
+            {
+                _offTouchCol = Color.clear;
+                _onTouchCol = new Color(1f, 0f, 0f, 0.3f);
+            }
         }
 
         private void OnGUI()
@@ -194,16 +232,16 @@ public static class DisplayTouchInGame
                 if (!Enum.TryParse(graphic.name, out InputManager.TouchPanelArea button)) return;
                 if (isButton)
                 {
-                    graphic.color = (InputManager.GetButtonPush(player, (InputManager.ButtonSetting)button) ? _onTouchCol : _offTouchCol);
+                    graphic.color = InputManager.GetButtonPush(player, (InputManager.ButtonSetting)button) ? _onTouchCol : _offTouchCol;
                 }
                 else
                 {
-                    graphic.color = (InputManager.GetTouchPanelAreaPush(player, button) ? _onTouchCol : _offTouchCol);
+                    graphic.color = InputManager.GetTouchPanelAreaPush(player, button) ? _onTouchCol : _offTouchCol;
                 }
             }
         }
     }
-    
+
     [HarmonyPostfix]
     [HarmonyPatch(typeof(MouseTouchPanel), "Start")]
     public static void Workaround() { }

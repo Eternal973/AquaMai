@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -10,13 +11,15 @@ namespace AquaMai.Core;
 
 public static class ConfigLoader
 {
-    private static string ConfigFile => "AquaMai.toml";
+    private static string ConfigFile => Environment.GetEnvironmentVariable("AQUAMAI_CONFIG") ?? "AquaMai.toml";
     private static string ConfigExampleFile(string lang) => $"AquaMai.{lang}.toml";
     private static string OldConfigFile(string version) => $"AquaMai.toml.old-v{version}.";
 
     private static Config.Config config;
 
     public static Config.Config Config => config;
+
+    private static string configText;
 
     public static bool LoadConfig(Assembly modsAssembly)
     {
@@ -43,7 +46,7 @@ public static class ConfigLoader
             return false;
         }
 
-        var configText = File.ReadAllText(ConfigFile);
+        configText = File.ReadAllText(ConfigFile);
         var configView = new ConfigView(configText);
         var configVersion = ConfigMigrationManager.Instance.GetVersion(configView);
         if (configVersion != ConfigMigrationManager.Instance.LatestVersion)
@@ -60,6 +63,8 @@ public static class ConfigLoader
 
     public static void SaveConfig(string lang)
     {
+        var newText = SerailizeCurrentConfig(lang);
+        if (newText == configText) return;
         File.WriteAllText(ConfigFile, SerailizeCurrentConfig(lang));
     }
 
@@ -74,7 +79,7 @@ public static class ConfigLoader
     private static IDictionary<string, string> GenerateExamples()
     {
         var examples = new Dictionary<string, string>();
-        foreach (var lang in (string[]) ["en", "zh"])
+        foreach (var lang in (string[])["en", "zh"])
         {
             examples[lang] = SerailizeCurrentConfig(lang);
         }

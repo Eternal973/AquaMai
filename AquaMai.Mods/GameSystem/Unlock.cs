@@ -14,6 +14,7 @@ using Net.VO.Mai2;
 using Process;
 using Util;
 using System.Runtime.CompilerServices;
+using AquaMai.Core;
 
 namespace AquaMai.Mods.GameSystem;
 
@@ -29,6 +30,7 @@ namespace AquaMai.Mods.GameSystem;
         由本 Mod 解锁的内容（除了被你升级过的角色以外）不会上传到你的账户
         游玩时仍会像未开启解锁一样「获得」那些乐曲/收藏品/段位
         """)]
+[EnableGameVersion(23000)]
 public class Unlock
 {
     public static void OnBeforeEnableCheck()
@@ -345,7 +347,7 @@ public class Unlock
         zh: "不解锁以下 Event。如果你不知道这是什么，请勿修改",
         hideWhenDefault: true
     )]
-    private static readonly string eventBlackList = "0,250926121";
+    private static readonly string eventBlackList = "0,250926121,251205121";
     private static HashSet<int> eventBlackListSet = null;
 
     [EnableIf(nameof(events))]
