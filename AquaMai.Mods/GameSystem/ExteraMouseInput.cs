@@ -3,10 +3,10 @@ using HarmonyLib;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using MelonLoader;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using AquaMai.Mods.GameSystem.ExclusiveTouch;
 
 namespace AquaMai.Mods.GameSystem;
 
@@ -22,6 +22,36 @@ public partial class ExteraMouseInput
         en: "Touch area radius size. Adjust according to the size of your finger, you can test in Test Mode.",
         zh: "触摸区域半径大小。请根据手指大小调整，可以去 Test 中测试")]
     public readonly static float radius = 25;
+
+    [ConfigEntry(
+        name: "A 区额外半径",
+        en: "Extra radius for A area (outer ring buttons). Can be negative to shrink.",
+        zh: "A 区（外圈按键）的额外半径，可以为负值来缩小")]
+    public readonly static float aAreaExtraRadius = 0;
+
+    [ConfigEntry(
+        name: "B 区额外半径",
+        en: "Extra radius for B area (middle ring sensors). Can be negative to shrink.",
+        zh: "B 区（中圈传感器）的额外半径，可以为负值来缩小")]
+    public readonly static float bAreaExtraRadius = 0;
+
+    [ConfigEntry(
+        name: "C 区额外半径",
+        en: "Extra radius for C area (center sensors). Can be negative to shrink.",
+        zh: "C 区（中心传感器）的额外半径，可以为负值来缩小")]
+    public readonly static float cAreaExtraRadius = 0;
+
+    [ConfigEntry(
+        name: "D 区额外半径",
+        en: "Extra radius for D area (inner ring sensors). Can be negative to shrink.",
+        zh: "D 区（内圈传感器）的额外半径，可以为负值来缩小")]
+    public readonly static float dAreaExtraRadius = 0;
+
+    [ConfigEntry(
+        name: "E 区额外半径",
+        en: "Extra radius for E area (innermost ring sensors). Can be negative to shrink.",
+        zh: "E 区（最内圈传感器）的额外半径，可以为负值来缩小")]
+    public readonly static float eAreaExtraRadius = 0;
 
     [ConfigEntry(
         name: "显示触摸点",
@@ -135,130 +165,45 @@ public partial class ExteraMouseInput
             return false;
         }
 
+        float effectiveRadius = GetEffectiveRadius(__instance.name);
+
         bool isInsidePolygon = false;
-        //检查是否在多边形顶点内
-        isInsidePolygon = IsVertDistance(polygon, localInputPoint, radius);
-        //检查是否在多边形边上
-        if (!isInsidePolygon)
+        if (effectiveRadius > 0)
         {
-            isInsidePolygon = IsCircleIntersectingPolygonEdges(polygon, localInputPoint, radius);
+            //检查是否在多边形顶点内
+            isInsidePolygon = PolygonRaycasting.IsVertDistance(polygon, localInputPoint, effectiveRadius);
+            //检查是否在多边形边上
+            if (!isInsidePolygon)
+            {
+                isInsidePolygon = PolygonRaycasting.IsCircleIntersectingPolygonEdges(polygon, localInputPoint, effectiveRadius);
+            }
         }
         // 检查是否在多边形内部
         if (!isInsidePolygon)
         {
-            isInsidePolygon = InPointInInternal(polygon, localInputPoint);
+            isInsidePolygon = PolygonRaycasting.InPointInInternal(polygon, localInputPoint);
         }
-        //if (isInsidePolygon)
-        //{
-        //    foreach (var p in polygon)
-        //    {
-        //        var testo = new GameObject("A");
-        //        testo.transform.SetParent(rectTransform);
-        //        testo.transform.localPosition = p;
-        //        testo.transform.localScale = Vector3.one * 0.2f;
-        //        testo.AddComponent<RectTransform>();
-        //        testo.AddComponent<Image>();
-        //    }
-        //}
         __result = isInsidePolygon;
         return false;
     }
 
-    #region 计算
-
-    /// <summary>
-    /// 检查点是否在多边形的顶点内
-    /// </summary>
-    /// <returns></returns>
-    private static bool InPointInInternal(Vector2[] polygon, Vector2 localInputPoint)
+    static float GetEffectiveRadius(string buttonName)
     {
-        bool isInsidePolygon = false;
-        int num = polygon.Length;
-        float x = localInputPoint.x;
-        float y = localInputPoint.y;
-        Vector2 prevVertex = polygon[num - 1];
-        float prevX = prevVertex.x;
-        float prevY = prevVertex.y;
-        for (int i = 0; i < polygon.Length; i++)
+        if (string.IsNullOrEmpty(buttonName) || buttonName.Length == 0)
+            return Math.Max(0, radius);
+
+        float extra = buttonName[0] switch
         {
-            Vector2 currentVertex = polygon[i];
-            float currentX = currentVertex.x;
-            float currentY = currentVertex.y;
+            'A' => aAreaExtraRadius,
+            'B' => bAreaExtraRadius,
+            'C' => cAreaExtraRadius,
+            'D' => dAreaExtraRadius,
+            'E' => eAreaExtraRadius,
+            _ => 0
+        };
 
-
-            // 判断点是否在边的左右交替
-            if ((currentY > y ^ prevY > y) && (x < (prevX - currentX) * (y - currentY) / (prevY - currentY) + currentX))
-            {
-                isInsidePolygon = !isInsidePolygon;
-            }
-            prevX = currentX;
-            prevY = currentY;
-        }
-        return isInsidePolygon;
+        return Math.Max(0, radius + extra);
     }
-    /// <summary>
-    /// 检查顶点是否在触摸点的范围
-    /// </summary>
-    /// <param name="polygon"></param>
-    /// <param name="circleCenter"></param>
-    /// <param name="radius"></param>
-    /// <returns></returns>
-    private static bool IsVertDistance(Vector2[] polygon, Vector2 circleCenter, float radius)
-    {
-        for (int i = 0; i < polygon.Length; i++)
-        {
-            Vector2 currentVertex = polygon[i];
-            float currentX = currentVertex.x;
-            float currentY = currentVertex.y;
-            if (Vector2.Distance(circleCenter, currentVertex) < radius)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-    /// <summary>
-    /// 检查圆是否与多边形的边相交
-    /// </summary>
-    /// <param name="polygon"></param>
-    /// <param name="circleCenter"></param>
-    /// <param name="radius"></param>
-    /// <returns></returns>
-    private static bool IsCircleIntersectingPolygonEdges(Vector2[] polygon, Vector2 circleCenter, float radius)
-    {
-        int vertexCount = polygon.Length;
-
-        for (int i = 0; i < vertexCount; i++)
-        {
-            Vector2 a = polygon[i];
-            Vector2 b = polygon[(i + 1) % vertexCount];
-
-            // 检查圆心到边的最短距离是否小于等于半径
-            if (DistanceFromPointToSegment(circleCenter, a, b) <= radius)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-    // 计算点到线段的最短距离
-    private static float DistanceFromPointToSegment(Vector2 point, Vector2 segmentStart, Vector2 segmentEnd)
-    {
-        Vector2 segment = segmentEnd - segmentStart;
-        float segmentLengthSquared = segment.sqrMagnitude;
-
-        if (segmentLengthSquared == 0f)
-        {
-            return Vector2.Distance(point, segmentStart); // 退化为一个点
-        }
-
-        float t = Mathf.Clamp(Vector2.Dot(point - segmentStart, segment) / segmentLengthSquared, 0f, 1f);
-        Vector2 projection = segmentStart + t * segment;
-        return Vector2.Distance(point, projection);
-    }
-
-    #endregion
 
     #region ⚪
 

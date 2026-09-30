@@ -36,13 +36,32 @@ public class PracticeMode
     [ConfigEntry]
     public static readonly bool longPress = false;
 
+    [ConfigEntry(
+        name: "仅自由模式可用",
+        en: "Only allow Practice Mode in Freedom Mode while time remains.",
+        zh: "仅在自由模式且时间未耗尽时允许使用练习模式")]
+    public static readonly bool onlyInFreedomMode = false;
+
     public static double repeatStart = -1;
     public static double repeatEnd = -1;
     public static float speed = 1;
     private static CriAtomExPlayer player;
-    private static MovieMaterialMai2 movie;
-    public static GameCtrl gameCtrl;
+    private static List<MovieMaterialMai2> movie;
+    private static GameCtrl[] gameCtrl = new GameCtrl[2];
     public static bool keepNoteSpeed = false;
+    
+    private static void ClearPracticeEffects()
+    {
+        // 清除练习模式的所有效果。涉及的效果有四种：UI界面、循环、速度、暂停。
+        if (ui != null)
+        {
+            UnityEngine.Object.Destroy(ui);
+            ui = null;
+        }
+        if (repeatStart >= 0 || repeatEnd >= 0) ClearRepeat();
+        if (speed != 1f) SpeedReset();
+        if (DebugFeature.Pause) TogglePause();
+    }
 
     public static void SetRepeatEnd(double time)
     {
@@ -67,14 +86,37 @@ public class PracticeMode
         repeatEnd = -1;
     }
 
+    public static void TogglePause()
+    {
+        DebugFeature.Pause = !DebugFeature.Pause;
+        if (!DebugFeature.Pause)
+        {
+            Seek(0);
+        }
+    }
+
+    public static void GameCtrlResetOptionSpeed()
+    {
+        foreach (var g in gameCtrl)
+        {
+            try
+            {
+                g?.ResetOptionSpeed();
+            }
+            catch (NullReferenceException) {} // 忽略即可，因为SBGA的代码在ResetOptionSpeed内部没有做null检查，单刷的时候对2P那侧这个函数必定会抛NPE
+        }
+    }
+
     public static void SetSpeed()
     {
+        DontRuinMyAccount.triggerForPracticeMode();
+        
         player.SetPitch((float)(1200 * Math.Log(speed, 2)));
         // player.SetDspTimeStretchRatio(1 / speed);
         player.UpdateAll();
-
-        movie.player.SetSpeed(speed);
-        gameCtrl?.ResetOptionSpeed();
+        
+        movie?.ForEach(m => m.player?.SetSpeed(speed));
+        GameCtrlResetOptionSpeed();
     }
 
     private static IEnumerator SetSpeedCoroutineInner()
@@ -155,6 +197,8 @@ public class PracticeMode
 
     public static PracticeModeUI ui;
 
+    private static long prevFreedomModeMSec = -1; // 上一帧时，自由模式的剩余秒数
+
     [HarmonyPatch]
     public class PatchNoteSpeed
     {
@@ -179,6 +223,7 @@ public class PracticeMode
         repeatEnd = -1;
         speed = 1;
         ui = null;
+        prevFreedomModeMSec = GameManager.IsFreedomMode ? GameManager.GetFreedomModeMSec() : -1;
     }
 
     [HarmonyPatch(typeof(GameProcess), "OnRelease")]
@@ -189,13 +234,14 @@ public class PracticeMode
         repeatEnd = -1;
         speed = 1;
         ui = null;
+        prevFreedomModeMSec = -1;
     }
 
     [HarmonyPatch(typeof(GameCtrl), "Initialize")]
     [HarmonyPostfix]
     public static void GameCtrlPostInitialize(GameCtrl __instance)
     {
-        gameCtrl = __instance;
+        gameCtrl[__instance.MonitorIndex] =__instance;
     }
 
 # if DEBUG
@@ -214,9 +260,18 @@ public class PracticeMode
     [HarmonyPostfix]
     public static void GameProcessPostUpdate(GameProcess __instance, GameMonitor[] ____monitors)
     {
-        if (KeyListener.GetKeyDownOrLongPress(key, longPress) && ui is null)
+        if (KeyListener.GetKeyDownOrLongPress(key, longPress) && ui is null && 
+            (!onlyInFreedomMode || (GameManager.IsFreedomMode && GameManager.GetFreedomModeMSec() > 0))) // onlyInFreedomMode=true情况，则额外检查是否在练习模式内、且时间有剩余，如果不满足则不开启UI。
         {
             ui = ____monitors[0].gameObject.AddComponent<PracticeModeUI>();
+        }
+        
+        if (onlyInFreedomMode && GameManager.IsFreedomMode)
+        {
+            var currentFreedomModeMSec = GameManager.GetFreedomModeMSec();
+            if (prevFreedomModeMSec > 0 && currentFreedomModeMSec <= 0)
+                ClearPracticeEffects(); // 如果这一帧内、练习模式的时间刚好归零了：则清空练习模式的一切效果。
+            prevFreedomModeMSec = currentFreedomModeMSec;
         }
 
         if (repeatStart >= 0 && repeatEnd >= 0)
@@ -261,7 +316,7 @@ public class PracticeMode
     [HarmonyPrefix]
     public static bool NotesManagerPostUpdateTimer(bool ____isPlaying, Stopwatch ____stopwatch, ref float ____curMSec, ref float ____curMSecPre, float ____msecStartGap)
     {
-        if (isInAdvDemo || GameManager.IsKaleidxScopeMode)
+        if (isInAdvDemo || Shim.IsKaleidxScopeMode)
         {
             return true;
         }
@@ -304,8 +359,12 @@ public class PracticeMode
 
     [HarmonyPatch(typeof(MovieController), "Awake")]
     [HarmonyPostfix]
-    public static void MovieControllerPostAwake(MovieMaterialMai2 ____moviePlayers)
+    public static void MovieControllerPostAwake(object ____moviePlayers)
     {
-        movie = ____moviePlayers;
+        // 1.55以上，_moviePlayers是List<MovieMaterialMai2>；1.50以下，___moviePlayers是MovieMaterialMai2。
+        // 所以这里用object承接，再根据object的类型做具体处理
+        if (____moviePlayers is List<MovieMaterialMai2> mList) movie = mList;
+        else if (____moviePlayers is MovieMaterialMai2 m) movie = new([m]);
+        else MelonLogger.Error("[PracticeMode] MovieControllerPostAwake: [BUG] 收到的____moviePlayers参数不正确");
     }
 }

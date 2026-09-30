@@ -3,128 +3,247 @@ using System.Linq;
 using System.Reflection;
 using AquaMai.Config.Attributes;
 using AquaMai.Config.Types;
+using AquaMai.Core.Attributes;
 using AquaMai.Core.Helpers;
 using AquaMai.Mods.GameSystem.MaimollerIO.Libs;
 using HarmonyLib;
-using IO;
 using Main;
-using Manager;
 using Mecha;
-using MelonLoader;
 using UnityEngine;
 
 namespace AquaMai.Mods.GameSystem.MaimollerIO;
 
 [ConfigCollapseNamespace]
 [ConfigSection(
-    name: "Maimoller IO 协议",
+    name: "Maimoller IO V2",
     en: """
         Input (buttons and touch) and output (LEDs) for Maimoller controllers, replacing the stock ADXHIDIOMod.dll.
         Don't enable this if you're not using Maimoller controllers.
-        You must have libadxhid.dll and hidapi.dll in your Sinmai_Data/Plugins folder.
         Please remove ADXHIDIOMod.dll (if any) and disable DummyTouchpanel in mai2.ini.
         """,
     zh: """
         适配 Maimoller 控制器的输入（按钮和触屏）和输出（LED），替代厂商提供的 ADXHIDIOMod.dll。
         如果你没有使用 Maimoller 控制器，请勿启用。
-        请在 Sinmai_Data/Plugins 文件夹下放置 libadxhid.dll 和 hidapi.dll。
-        请删除 ADXHIDIOMod.dll（如果有）并关闭 mai2.ini 中的 DummyTouchpanel
+        请删除 ADXHIDIOMod.dll（如果有）并关闭 mai2.ini 中的 DummyTouchpanel。
         """)]
 public class MaimollerIO
 {
     [ConfigEntry(
-        name: "启用 1P",
-        en: "Enable 1P (If you mix Maimoller with other protocols, please disable for the side that is not Maimoller)",
-        zh: "启用 1P（如果混用 Maimoller 与其他协议，请对不是 Maimoller 的一侧禁用）")]
-    private static readonly bool p1 = true;
+        name: "启用 1P 触屏",
+        en: "Enable 1P TouchScreen (If you mix Maimoller with other protocols, please disable for the side that is not Maimoller)",
+        zh: "如果混用 Maimoller 与其他协议，请对不是 Maimoller 的一侧禁用")]
+    private static readonly bool touch1p = true;
 
     [ConfigEntry(
-        name: "启用 2P",
-        en: "Enable 2P (If you mix Maimoller with other protocols, please disable for the side that is not Maimoller)",
-        zh: "启用 2P（如果混用 Maimoller 与其他协议，请对不是 Maimoller 的一侧禁用）")]
-    private static readonly bool p2 = true;
+        name: "启用 1P 按键",
+        en: "Enable 1P Buttons")]
+    private static readonly bool button1p = true;
 
-    [ConfigEntry(name: "按钮 1（三角形）")]
-    private static readonly IOKeyMap button1 = IOKeyMap.Select1P;
+    [ConfigEntry(
+        name: "启用 1P 灯光",
+        en: "Enable 1P LEDs")]
+    private static readonly bool led1p = true;
 
-    [ConfigEntry(name: "按钮 2（圆形）")]
-    private static readonly IOKeyMap button2 = IOKeyMap.Test;
+    [ConfigEntry(
+        name: "启用 2P 触屏",
+        en: "Enable 2P")]
+    private static readonly bool touch2p = true;
 
-    [ConfigEntry(name: "按钮 3（圆形）")]
-    private static readonly IOKeyMap button3 = IOKeyMap.Service;
+    [ConfigEntry(
+        name: "启用 2P 按键",
+        en: "Enable 2P Buttons")]
+    private static readonly bool button2p = true;
 
-    [ConfigEntry(name: "按钮 4（圆形）")]
-    private static readonly IOKeyMap button4 = IOKeyMap.Select2P;
+    [ConfigEntry(
+        name: "启用 2P 灯光",
+        en: "Enable 2P LEDs")]
+    private static readonly bool led2p = true;
 
-    private static readonly MaimollerInputReport.ButtonMask[] auxiliaryMaskMap =
-    [
-        /* button1 */ MaimollerInputReport.ButtonMask.SELECT,
-        /* button2 */ MaimollerInputReport.ButtonMask.SERVICE,
-        /* button3 */ MaimollerInputReport.ButtonMask.TEST,
-        /* button4 */ MaimollerInputReport.ButtonMask.COIN,
-    ];
+    [ConfigEntry("启用兼容模式",
+       en: """
+       Use legacy implementation based on vendor DLLs
+       You must have libadxhid.dll and hidapi.dll in your Sinmai_Data/Plugins folder. But please do not place ADXHIDIOMod.dll
+       """,
+       zh: """
+       使用基于厂商 DLL 的旧版实现
+       请在 Sinmai_Data/Plugins 文件夹下放置 libadxhid.dll 和 hidapi.dll。但请不要放置 ADXHIDIOMod.dll
+       """)]
+    private static readonly bool useLegacy = false;
 
-    private static bool ShouldEnableForPlayer(int playerNo) => playerNo switch
+    [ConfigEntry("兼容性 2P 模式",
+       en: "When mixing Maimoller with other protocols and Maimoller is on 2P, and Maimoller is not working properly, enable this (only works for legacy implementation)",
+       zh: "当混用 Maimoller 与其他协议并且 Maimoller 在 2P 上，而且 Maimoller 无法正常使用时开启（仅对旧版实现有效）")]
+    private static readonly bool alternative2p = false;
+
+    private static bool ShouldInitForPlayer(int playerNo) => playerNo switch
     {
-        0 => p1,
-        1 => p2,
+        0 => touch1p || button1p || led1p,
+        1 => touch2p || button2p || led2p,
         _ => false,
     };
 
-    private static readonly MaimollerDevice[] _devices = [.. Enumerable.Range(0, 2).Select(i => new MaimollerDevice(i))];
-    private static readonly MaimollerLedManager[] _ledManagers = [.. Enumerable.Range(0, 2).Select(i => new MaimollerLedManager(_devices[i].output))];
+    private static bool IsTouchEnabledForPlayer(int playerNo) => playerNo switch
+    {
+        0 => touch1p,
+        1 => touch2p,
+        _ => false,
+    };
+
+    private static bool IsButtonEnabledForPlayer(int playerNo) => playerNo switch
+    {
+        0 => button1p,
+        1 => button2p,
+        _ => false,
+    };
+
+    private static bool IsLedEnabledForPlayer(int playerNo) => playerNo switch
+    {
+        0 => led1p,
+        1 => led2p,
+        _ => false,
+    };
+
+    private static bool IsAnyLedEnabled => led1p || led2p;
+
+    [ConfigEntry(name: "1P 按钮 1（三角形）")]
+    private static readonly IOKeyMap p1Button1 = IOKeyMap.Select1P;
+
+    [ConfigEntry(name: "1P 按钮 2（圆形）")]
+    private static readonly IOKeyMap p1Button2 = IOKeyMap.Test;
+
+    [ConfigEntry(name: "1P 按钮 3（圆形）")]
+    private static readonly IOKeyMap p1Button3 = IOKeyMap.Service;
+
+    [ConfigEntry(name: "1P 按钮 4（圆形）")]
+    private static readonly IOKeyMap p1Button4 = IOKeyMap.Select2P;
+
+    [ConfigEntry(name: "2P 按钮 1（三角形）")]
+    private static readonly IOKeyMap p2Button1 = IOKeyMap.Select1P;
+
+    [ConfigEntry(name: "2P 按钮 2（圆形）")]
+    private static readonly IOKeyMap p2Button2 = IOKeyMap.Test;
+
+    [ConfigEntry(name: "2P 按钮 3（圆形）")]
+    private static readonly IOKeyMap p2Button3 = IOKeyMap.Service;
+
+    [ConfigEntry(name: "2P 按钮 4（圆形）")]
+    private static readonly IOKeyMap p2Button4 = IOKeyMap.Select2P;
+
+    private static readonly IOKeyMap[][] keyMaps = new IOKeyMap[2][];
+
+    private static readonly SystemButton[] auxiliaryButtonMap =
+    [
+        /* button1 */ SystemButton.Select,
+        /* button2 */ SystemButton.Service,
+        /* button3 */ SystemButton.Test,
+        /* button4 */ SystemButton.Coin,
+    ];
+
+
+    private static IMaimollerDevice[] _devices;
 
     public static void OnBeforePatch()
     {
-        if (p1) _devices[0].Open();
-        if (p2) _devices[1].Open();
-        JvsSwitchHook.RegisterButtonChecker(IsButtonPushed);
-        JvsSwitchHook.RegisterAuxiliaryStateProvider(GetAuxiliaryState);
+        keyMaps[0] = [p1Button1, p1Button2, p1Button3, p1Button4];
+        keyMaps[1] = [p2Button1, p2Button2, p2Button3, p2Button4];
+        _devices = [.. Enumerable.Range(0, 2).Select(i => (IMaimollerDevice)(useLegacy ? new MaimollerDeviceLegacy(i, alternative2p) : new MaimollerDeviceNative(i)))];
+        for (int i = 0; i < 2; i++)
+        {
+            if (!ShouldInitForPlayer(i)) continue;
+            _devices[i].Open();
+
+            if (IsTouchEnabledForPlayer(i))
+            {
+                TouchStatusProvider.RegisterTouchStatusProvider(i, GetTouchState);
+            }
+        }
+
+        if (button1p || button2p)
+        {
+            JvsSwitchHook.RegisterButtonChecker(IsButtonPushed);
+            JvsSwitchHook.RegisterAuxiliaryStateProvider(GetAuxiliaryState);
+            JvsSwitchHook.RegisterCustomFnStateProvider(GetCustomFnState);
+        }
     }
 
-    private static bool IsButtonPushed(int playerNo, int buttonIndex1To8) => buttonIndex1To8 switch
-    {
-        1 => _devices[playerNo].input.GetSwitchState(MaimollerInputReport.SwitchClass.BUTTON, MaimollerInputReport.ButtonMask.BTN_1) != 0,
-        2 => _devices[playerNo].input.GetSwitchState(MaimollerInputReport.SwitchClass.BUTTON, MaimollerInputReport.ButtonMask.BTN_2) != 0,
-        3 => _devices[playerNo].input.GetSwitchState(MaimollerInputReport.SwitchClass.BUTTON, MaimollerInputReport.ButtonMask.BTN_3) != 0,
-        4 => _devices[playerNo].input.GetSwitchState(MaimollerInputReport.SwitchClass.BUTTON, MaimollerInputReport.ButtonMask.BTN_4) != 0,
-        5 => _devices[playerNo].input.GetSwitchState(MaimollerInputReport.SwitchClass.BUTTON, MaimollerInputReport.ButtonMask.BTN_5) != 0,
-        6 => _devices[playerNo].input.GetSwitchState(MaimollerInputReport.SwitchClass.BUTTON, MaimollerInputReport.ButtonMask.BTN_6) != 0,
-        7 => _devices[playerNo].input.GetSwitchState(MaimollerInputReport.SwitchClass.BUTTON, MaimollerInputReport.ButtonMask.BTN_7) != 0,
-        8 => _devices[playerNo].input.GetSwitchState(MaimollerInputReport.SwitchClass.BUTTON, MaimollerInputReport.ButtonMask.BTN_8) != 0,
-        _ => false,
-    };
+    #region Button
 
-    // NOTE: Coin button is not supported yet. AquaMai recommands setting fixed number of credits directly in the configuration.
+    private static bool IsButtonPushed(int playerNo, int buttonIndex1To8)
+    {
+        if (!IsButtonEnabledForPlayer(playerNo)) return false;
+        return _devices[playerNo].IsButtonPressed(buttonIndex1To8);
+    }
+
     private static AuxiliaryState GetAuxiliaryState()
     {
         var auxiliaryState = new AuxiliaryState();
-        IOKeyMap[] keyMaps = [button1, button2, button3, button4];
-        for (int i = 0; i < 4; i++)
+        for (int p = 0; p < 2; p++)
         {
-            var is1PPushed = p1 && _devices[0].input.GetSwitchState(MaimollerInputReport.SwitchClass.SYSTEM, auxiliaryMaskMap[i]) != 0;
-            var is2PPushed = p2 && _devices[1].input.GetSwitchState(MaimollerInputReport.SwitchClass.SYSTEM, auxiliaryMaskMap[i]) != 0;
-            switch (keyMaps[i])
+            if (p == 0 ? !button1p : !button2p) continue;
+            var maps = keyMaps[p];
+            for (int i = 0; i < 4; i++)
             {
-            case IOKeyMap.Select1P:
-                auxiliaryState.select1P |= is1PPushed || is2PPushed;
-                break;
-            case IOKeyMap.Select2P:
-                auxiliaryState.select2P |= is1PPushed || is2PPushed;
-                break;
-            case IOKeyMap.Select:
-                auxiliaryState.select1P |= is1PPushed;
-                auxiliaryState.select2P |= is2PPushed;
-                break;
-            case IOKeyMap.Service:
-                auxiliaryState.service = is1PPushed || is2PPushed;
-                break;
-            case IOKeyMap.Test:
-                auxiliaryState.test = is1PPushed || is2PPushed;
-                break;
+                var isPushed = _devices[p].IsSystemButtonPressed(auxiliaryButtonMap[i]);
+                switch (maps[i])
+                {
+                    case IOKeyMap.Select1P:
+                        auxiliaryState.select1P |= isPushed;
+                        break;
+                    case IOKeyMap.Select2P:
+                        auxiliaryState.select2P |= isPushed;
+                        break;
+                    case IOKeyMap.Select:
+                        if (p == 0) auxiliaryState.select1P |= isPushed;
+                        else auxiliaryState.select2P |= isPushed;
+                        break;
+                    case IOKeyMap.Service:
+                        auxiliaryState.service |= isPushed;
+                        break;
+                    case IOKeyMap.Test:
+                        auxiliaryState.test |= isPushed;
+                        break;
+                }
             }
         }
         return auxiliaryState;
+    }
+    
+    private static CustomFnState GetCustomFnState()
+    {
+        var result = new CustomFnState();
+        for (int p = 0; p < 2; p++)
+        {
+            if (p == 0 ? !button1p : !button2p) continue;
+            var maps = keyMaps[p];
+            for (int i = 0; i < 4; i++)
+            {
+                var isPushed = _devices[p].IsSystemButtonPressed(auxiliaryButtonMap[i]);
+                switch (maps[i])
+                {
+                    case IOKeyMap.CustomFn1:
+                        result.CustomFn1 |= isPushed;
+                        break;
+                    case IOKeyMap.CustomFn2:
+                        result.CustomFn2 |= isPushed;
+                        break;
+                    case IOKeyMap.CustomFn3:
+                        result.CustomFn3 |= isPushed;
+                        break;
+                    case IOKeyMap.CustomFn4:
+                        result.CustomFn4 |= isPushed;
+                        break;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    #endregion
+
+    private static ulong GetTouchState(int i)
+    {
+        return _devices[i].GetTouchState();
     }
 
     [HarmonyPrefix]
@@ -134,86 +253,90 @@ public class MaimollerIO
         if (!____isInitialize) return;
         for (int i = 0; i < 2; i++)
         {
-            if (!ShouldEnableForPlayer(i)) continue;
+            if (!ShouldInitForPlayer(i)) continue;
             _devices[i].Update();
         }
     }
 
-    [HarmonyPrefix]
-    [HarmonyPatch(typeof(NewTouchPanel), "Execute")]
-    public static bool PreNewTouchPanelExecute(uint ____monitorIndex, ref uint ____dataCounter)
-    {
-        int i = (int)____monitorIndex;
-        if (!ShouldEnableForPlayer(i)) return true;
-        ulong s = 0;
-        s |= (ulong)_devices[i].input.GetSwitchState(MaimollerInputReport.SwitchClass.TOUCH_A, MaimollerInputReport.ButtonMask.ANY_PLAYER);
-        s |= (ulong)_devices[i].input.GetSwitchState(MaimollerInputReport.SwitchClass.TOUCH_B, MaimollerInputReport.ButtonMask.ANY_PLAYER) << 8;
-        s |= (ulong)_devices[i].input.GetSwitchState(MaimollerInputReport.SwitchClass.TOUCH_C, MaimollerInputReport.ButtonMask.ANY_TOUCH_C) << 16;
-        s |= (ulong)_devices[i].input.GetSwitchState(MaimollerInputReport.SwitchClass.TOUCH_D, MaimollerInputReport.ButtonMask.ANY_PLAYER) << 18;
-        s |= (ulong)_devices[i].input.GetSwitchState(MaimollerInputReport.SwitchClass.TOUCH_E, MaimollerInputReport.ButtonMask.ANY_PLAYER) << 26;
-        InputManager.SetNewTouchPanel(____monitorIndex, s, ++____dataCounter);
-        return false;
-    }
-
-    [HarmonyPrefix]
-    [HarmonyPatch(typeof(NewTouchPanel), "Start")]
-    public static bool PreNewTouchPanelStart(uint ____monitorIndex, ref NewTouchPanel.StatusEnum ___Status, ref bool ____isRunning)
-    {
-        if (!ShouldEnableForPlayer((int)____monitorIndex)) return true;
-        ___Status = NewTouchPanel.StatusEnum.Drive;
-        ____isRunning = true;
-        MelonLogger.Msg($"[MaimollerIO] NewTouchPanel Start {____monitorIndex + 1}P");
-        return false;
-    }
-
     [HarmonyPatch]
+    [EnableIf(typeof(MaimollerIO), nameof(IsAnyLedEnabled))]
     public static class JvsOutputPwmPatch
     {
         public static MethodInfo TargetMethod() => typeof(IO.Jvs).GetNestedType("JvsOutputPwm", BindingFlags.NonPublic | BindingFlags.Public).GetMethod("Set");
 
-        public static void Prefix(byte index, Color32 color) => _ledManagers[index].SetBillboardColor(color);
+        public static void Prefix(byte index, Color32 color)
+        {
+            if (!IsLedEnabledForPlayer(index)) return;
+            _devices[index].SetBillboardColor(color);
+        }
     }
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(Bd15070_4IF), "PreExecute")]
-    public static void PostPreExecute(Bd15070_4IF.InitParam ____initParam) =>
-        _ledManagers[____initParam.index].PreExecute();
+    [EnableIf(nameof(IsAnyLedEnabled))]
+    public static void PostPreExecute(Bd15070_4IF.InitParam ____initParam)
+    {
+        if (!IsLedEnabledForPlayer(____initParam.index)) return;
+        _devices[____initParam.index].LedPreExecute();
+    }
+
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(Bd15070_4IF), "_setColor")]
-    public static void Pre_setColor(byte ledPos, Color32 color, Bd15070_4IF.InitParam ____initParam) =>
-        _ledManagers[____initParam.index].SetButtonColor(ledPos, color);
+    [EnableIf(nameof(IsAnyLedEnabled))]
+    public static void Pre_setColor(byte ledPos, Color32 color, Bd15070_4IF.InitParam ____initParam)
+    {
+        if (!IsLedEnabledForPlayer(____initParam.index)) return;
+        _devices[____initParam.index].SetButtonColor(ledPos, color);
+    }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(Bd15070_4IF), "_setColorMulti")]
-    public static void Pre_setColorMulti(Color32 color, byte speed, Bd15070_4IF.InitParam ____initParam) =>
-        _ledManagers[____initParam.index].SetButtonColor(-1, color);
+    [EnableIf(nameof(IsAnyLedEnabled))]
+    public static void Pre_setColorMulti(Color32 color, byte speed, Bd15070_4IF.InitParam ____initParam)
+    {
+        if (!IsLedEnabledForPlayer(____initParam.index)) return;
+        _devices[____initParam.index].SetButtonColor(-1, color);
+    }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(Bd15070_4IF), "_setColorMultiFade")]
-    public static void Pre_setColorMultiFade(Color32 color, byte speed, Bd15070_4IF.InitParam ____initParam) =>
-        _ledManagers[____initParam.index].SetButtonColorFade(-1, color, GetByte2Msec(speed));
+    [EnableIf(nameof(IsAnyLedEnabled))]
+    public static void Pre_setColorMultiFade(Color32 color, byte speed, Bd15070_4IF.InitParam ____initParam)
+    {
+        if (!IsLedEnabledForPlayer(____initParam.index)) return;
+        _devices[____initParam.index].SetButtonColorFade(-1, color, GetByte2Msec(speed));
+    }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(Bd15070_4IF), "_setColorMultiFet")]
+    [EnableIf(nameof(IsAnyLedEnabled))]
     public static void Pre_setColorMultiFet(Color32 color, Bd15070_4IF.InitParam ____initParam)
     {
-        _ledManagers[____initParam.index].SetBodyIntensity(8, color.r);
-        _ledManagers[____initParam.index].SetBodyIntensity(9, color.g);
-        _ledManagers[____initParam.index].SetBodyIntensity(10, color.b);
+        if (!IsLedEnabledForPlayer(____initParam.index)) return;
+        _devices[____initParam.index].SetBodyIntensity(8, color.r);
+        _devices[____initParam.index].SetBodyIntensity(9, color.g);
+        _devices[____initParam.index].SetBodyIntensity(10, color.b);
     }
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(Bd15070_4IF), "_setColorFet")]
-    public static void Pre_setColorFet(byte ledPos, byte color, Bd15070_4IF.InitParam ____initParam) =>
-        _ledManagers[____initParam.index].SetBodyIntensity(ledPos, color);
+    [EnableIf(nameof(IsAnyLedEnabled))]
+    public static void Pre_setColorFet(byte ledPos, byte color, Bd15070_4IF.InitParam ____initParam)
+    {
+        if (!IsLedEnabledForPlayer(____initParam.index)) return;
+        _devices[____initParam.index].SetBodyIntensity(ledPos, color);
+    }
+
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(Bd15070_4IF), "_setLedAllOff")]
+    [EnableIf(nameof(IsAnyLedEnabled))]
     public static void Pre_setLedAllOff(Bd15070_4IF.InitParam ____initParam)
     {
-        _ledManagers[____initParam.index].SetBodyIntensity(-1, 0);
-        _ledManagers[____initParam.index].SetButtonColor(-1, new Color32(0, 0, 0, byte.MaxValue));
+        if (!IsLedEnabledForPlayer(____initParam.index)) return;
+        _devices[____initParam.index].SetBodyIntensity(-1, 0);
+        _devices[____initParam.index].SetButtonColor(-1, new Color32(0, 0, 0, byte.MaxValue));
     }
 
     private static long GetByte2Msec(byte speed) => (long)Math.Round(4095.0 / speed * 8.0);

@@ -98,11 +98,7 @@ public class PracticeModeUI : MonoBehaviour
         }
         else if (InputManager.GetTouchPanelAreaDown(InputManager.TouchPanelArea.B8) || InputManager.GetTouchPanelAreaDown(InputManager.TouchPanelArea.B1))
         {
-            DebugFeature.Pause = !DebugFeature.Pause;
-            if (!DebugFeature.Pause)
-            {
-                PracticeMode.Seek(0);
-            }
+            PracticeMode.TogglePause();
         }
         else if (InputManager.GetTouchPanelAreaDown(InputManager.TouchPanelArea.B7) && PracticeMode.repeatStart == -1)
         {
@@ -131,7 +127,7 @@ public class PracticeModeUI : MonoBehaviour
         else if (InputManager.GetTouchPanelAreaDown(InputManager.TouchPanelArea.E4))
         {
             PracticeMode.keepNoteSpeed = !PracticeMode.keepNoteSpeed;
-            PracticeMode.gameCtrl?.ResetOptionSpeed();
+            PracticeMode.GameCtrlResetOptionSpeed();
         }
         else if (
             InputManager.GetTouchPanelAreaDown(InputManager.TouchPanelArea.A1) ||

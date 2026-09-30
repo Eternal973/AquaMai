@@ -171,4 +171,16 @@ public partial class SinglePlayer
         ____time1.SetVisible(false);
         ____time10.SetVisible(false);
     }
+
+    [EnableGameVersion(27000, noWarn: true)]
+    [HarmonyPatch("ScreenClipSetter", "SetClipX")]
+    [HarmonyPrefix]
+    public static void ScreenClipSetterSetClipX(ref float minX, ref float maxX)
+    {
+        if (maxX <= 0.5f)
+        {
+            minX = 0f;
+            maxX = 1f;
+        }
+    }
 }

@@ -10,7 +10,6 @@ using UnityEngine;
 
 namespace AquaMai.Mods.Fix;
 
-[EnableGameVersion(25000)]
 [ConfigSection(exampleHidden: true, defaultOn: true)]
 public class FixLevelDisplay
 {
@@ -28,10 +27,9 @@ public class FixLevelDisplay
         GameObject ____difficultyUtageQuesionMarkDoubleDigit)
     {
         // 在 KLD 表门和里门不应用修改
-        if (GameManager.IsKaleidxScopeMode)
+        if (Shim.IsKaleidxScopeMode)
         {
-            if (Singleton<KaleidxScopeManager>.Instance.gateId == 8 ||
-                Singleton<KaleidxScopeManager>.Instance.gateId == 10)
+            if (Shim.KaleidxScopeGateId is 8 or 10)
             {
                 return;
             }
@@ -110,5 +108,12 @@ public class FixLevelDisplay
         var music = Singleton<DataManager>.Instance.GetMusic(GameManager.SelectMusicID[___monitorIndex]);
         var levelID = (MusicLevelID)music.notesData[GameManager.SelectDifficultyID[___monitorIndex]].musicLevelID;
         FixLevelShiftMusicChainCardObejct(levelID, ____difficultySingle, ____difficultyDouble, music.name.id >= 100000, ____utageQuestionSingleDigit, ____utageQuestionDoubleDigit);
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(KOP_ResultTrackData), nameof(KOP_ResultTrackData.SetDifficultyLevel))]
+    private static void FixDaniResult(SpriteCounter ____singleLevel, SpriteCounter ____doubleLevel, MusicLevelID levelId)
+    {
+        FixLevelShiftMusicChainCardObejct(levelId, ____singleLevel, ____doubleLevel, false, null, null);
     }
 }

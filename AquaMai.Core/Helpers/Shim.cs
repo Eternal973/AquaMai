@@ -180,7 +180,16 @@ public static class Shim
                 return (PacketUpsertUserAll)ctor1.Invoke(args);
             };
         }
-        else if (type.GetConstructor([typeof(int), typeof(UserData), typeof(string), typeof(Action<int>), typeof(Action<PacketStatus>)]) is ConstructorInfo ctor2)
+        if (type.GetConstructor([typeof(int), typeof(UserData), typeof(int), typeof(Action<int>), typeof(Action<PacketStatus>)]) is ConstructorInfo ctor3)
+        {
+            return (index, src, onDone, onError) =>
+            {
+                var playLogCount = (src.IsEntry && !Singleton<GamePlayManager>.Instance.IsEmpty()) ? Singleton<GamePlayManager>.Instance.GetScoreListCount() : 0;
+                var args = new object[] { index, src, playLogCount, onDone, onError };
+                return (PacketUpsertUserAll)ctor3.Invoke(args);
+            };
+        }
+        if (type.GetConstructor([typeof(int), typeof(UserData), typeof(string), typeof(Action<int>), typeof(Action<PacketStatus>)]) is ConstructorInfo ctor2)
         {
             return (index, src, onDone, onError) =>
             {
@@ -229,5 +238,41 @@ public static class Shim
         }
     }
 
+    private static readonly MethodBase NotificationFadeInMethod = typeof(ProcessManager).GetMethod(nameof(ProcessManager.NotificationFadeIn), BindingFlags.Instance | BindingFlags.Public);
+    public static void NotificationFadeInFix(this ProcessManager manager)
+    {
+        if (NotificationFadeInMethod.GetParameters().Length == 1)
+        {
+            NotificationFadeInMethod.Invoke(manager, [false]);
+        }
+        else
+        {
+            NotificationFadeInMethod.Invoke(manager, null);
+        }
+    }
+
     public static readonly Action<bool> Set_GameManager_IsNormalMode = GameInfo.GameVersion < 25500 ? (_) => { } : (value) => { GameManager.IsNormalMode = value; };
+    private static readonly Func<bool> IsKaleidxScopeModeGetter = GameInfo.GameVersion < 25000 ? () => false : () => GameManager.IsKaleidxScopeMode;
+    private static readonly Func<int> GetKaleidxScopeGateId = GameInfo.GameVersion is >= 25000 and < 26500 ? () => Singleton<KaleidxScopeManager>.Instance.gateId : () => 0;
+    public static int KaleidxScopeGateId => GetKaleidxScopeGateId();
+    public static bool IsKaleidxScopeMode => IsKaleidxScopeModeGetter();
+
+    public static Action SetMaxTrack = Iife<Action>(() =>
+    {
+        var method = typeof(GameManager).GetMethod("SetMaxTrack", BindingFlags.Static | BindingFlags.Public);
+        object[] parameters;
+        if (method.GetParameters().Length == 0)
+        {
+            parameters = [];
+        }
+        else if (method.GetParameters().Length == 3)
+        {
+            parameters = [false, false, false];
+        }
+        else
+        {
+            throw new Exception("No matching GameManager.SetMaxTrack() method found");
+        }
+        return () => method.Invoke(null, parameters);
+    });
 }

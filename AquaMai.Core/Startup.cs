@@ -17,6 +17,9 @@ public class Startup
 
     private static bool _hasErrors;
 
+    private static readonly object _patchLock = new();
+    private static readonly HashSet<Type> _appliedPatches = [];
+
     private static bool _uiInit;
 
     private enum ModLifecycleMethod
@@ -106,18 +109,24 @@ public class Startup
 
     public static void ApplyPatch(Type type)
     {
-        MelonLogger.Msg($"> Applying {type}");
-        try
+        lock (_patchLock)
         {
-            InvokeLifecycleMethod(type, ModLifecycleMethod.OnBeforePatch);
-            _harmony.PatchAll(type);
-            InvokeLifecycleMethod(type, ModLifecycleMethod.OnAfterPatch);
-        }
-        catch (Exception e)
-        {
-            MelonLogger.Error($"Failed to patch {type}: {e}");
-            InvokeLifecycleMethod(type, ModLifecycleMethod.OnPatchError);
-            _hasErrors = true;
+            if (_appliedPatches.Contains(type)) return;
+
+            MelonLogger.Msg($"> Applying {type}");
+            try
+            {
+                InvokeLifecycleMethod(type, ModLifecycleMethod.OnBeforePatch);
+                _harmony.PatchAll(type);
+                InvokeLifecycleMethod(type, ModLifecycleMethod.OnAfterPatch);
+                _appliedPatches.Add(type);
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"Failed to patch {type}: {e}");
+                InvokeLifecycleMethod(type, ModLifecycleMethod.OnPatchError);
+                _hasErrors = true;
+            }
         }
     }
 
@@ -221,6 +230,15 @@ public class Startup
         {
             InvokeLifecycleMethod(type, ModLifecycleMethod.OnAfterAllPatch);
         }
+        
+        // 详见 AquaMai.Core/Helpers/HarmonyPatchRecompile.cs 中的注释 和 https://github.com/MuNET-OSS/AquaMai/pull/143#issuecomment-5442866288 中的讨论，
+        // 某些比较外层的方法（如MonoBehaviour.Update），不能被patch得太早，否则会导致内层函数仍然是旧的未patch版本，从而表现为「某些 patch 不生效 / 钩子像没打上一样」。
+        // 当出现这种情况时，则需要在内层的具体功能patch完成之后，强制触发Mono重新编译它们，确保它们调用的是最新的内层函数。
+        // 
+        // 这里，从整个AquaMai的全局层面，我们只集中重编译以下两个最为常用的函数。从而尽量规避不兼容情况的发生。
+        // 如果具体的mod仍有个别出问题的地方，则这些Mod可以再按需RecompileMethod自己涉及的函数。
+        HarmonyPatchRecompile.RecompileMethod(typeof(Main.GameMainObject), "Update");
+        HarmonyPatchRecompile.RecompileMethod(typeof(Main.GameMain), "Update");
 
         if (_hasErrors)
         {

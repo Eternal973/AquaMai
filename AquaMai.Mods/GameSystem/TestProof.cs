@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Linq;
 using AquaMai.Config.Attributes;
 using AquaMai.Config.Types;
@@ -6,6 +5,7 @@ using AquaMai.Core;
 using AquaMai.Core.Attributes;
 using AquaMai.Core.Helpers;
 using AquaMai.Mods.Tweaks;
+using AquaMai.Mods.Utils;
 using AquaMai.Mods.UX;
 using AquaMai.Mods.UX.PracticeMode;
 using HarmonyLib;
@@ -39,6 +39,7 @@ public class TestProof
                 (typeof(HideSelfMadeCharts), HideSelfMadeCharts.key),
                 (typeof(PracticeMode), PracticeMode.key),
                 (typeof(ResetTouch), ResetTouch.key),
+                (typeof(FreedomTimer), FreedomTimer.addTimeKey),
             ];
             var keyMapEnabled = ConfigLoader.Config.GetSectionState(typeof(KeyMap)).Enabled;
             return featureKeys.Any(it =>
@@ -58,6 +59,22 @@ public class TestProof
         zh: "修改为 Test 以外的值来实现长按特定的键进入游戏测试模式，这样 Test 键就可以完全用来实现自定义功能了")]
     private static readonly KeyCodeOrName testKey = KeyCodeOrName.Test;
 
+    private static bool _inGameMainObjectUpdate;
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(GameMainObject), "Update")]
+    public static void PreGameMainObjectUpdate()
+    {
+        _inGameMainObjectUpdate = true;
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(GameMainObject), "Update")]
+    public static void PostGameMainObjectUpdate()
+    {
+        _inGameMainObjectUpdate = false;
+    }
+
     [HarmonyPrefix]
     [HarmonyPatch(typeof(InputManager), "GetSystemInputDown")]
     public static bool GetSystemInputDown(ref bool __result, InputManager.SystemButtonSetting button, bool[] ___SystemButtonDown)
@@ -66,25 +83,11 @@ public class TestProof
         if (button != InputManager.SystemButtonSetting.ButtonTest)
             return false;
 
-        var stackTrace = new StackTrace(); // get call stack
-        var stackFrames = stackTrace.GetFrames(); // get method calls (frames)
-
-        if (stackFrames.Any(it => it.GetMethod().Name == "DMD<Main.GameMainObject::Update>"))
+        if (_inGameMainObjectUpdate)
         {
             __result = KeyListener.GetKeyDownOrLongPress(testKey, true);
         }
 
         return false;
     }
-
-    [HarmonyPrefix]
-    [HarmonyPatch(typeof(GameMain), "Update")]
-    public static void Workaround() { }
-    /*
-     * 似乎是 0Harmony.dll 的 Bug，导致在 Maimoller 的 Mod Patch GameMain:Update 之后，
-     * 原本 GameMain:Update 调用的 InputManager:GetSystemInputDown 变回了未 Patch 过的原始版本
-     * 我觉得这是玄学 Bug，应该用玄学方法来修
-     * 尝试性放了一个这个在这里，诶，好了！
-     * 我觉得应该是有某种 Patch 顺序相关的问题
-     */
 }
