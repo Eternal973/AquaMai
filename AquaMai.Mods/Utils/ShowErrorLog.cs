@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Text.RegularExpressions;
 using System.Threading;
 using AquaMai.Config.Attributes;
+using AquaMai.Core.Attributes;
 using AquaMai.Core.Helpers;
 using HarmonyLib;
 using Main;
@@ -16,13 +17,17 @@ using BuildInfo = AquaMai.Core.BuildInfo;
 namespace AquaMai.Mods.Utils;
 
 [ConfigSection(
+    name: "崩溃报错",
     en: "Show error log in the game.",
-    zh: "在游戏中显示错误日志窗口而不是关闭游戏进程")]
+    zh: "在游戏中显示错误日志窗口而不是关闭游戏进程",
+    defaultOn: true)]
+[EnableGameVersion(23000)]
 public class ShowErrorLog
 {
     private static Ui _errorUi;
 
     [ConfigEntry(
+        name: "崩溃窗口",
         en: "Use new error handler",
         zh: "使用新版错误报告生成器")]
     private static readonly bool useNewErrorHandler = true;

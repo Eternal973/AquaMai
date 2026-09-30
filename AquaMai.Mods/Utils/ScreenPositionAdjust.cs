@@ -14,6 +14,7 @@ using UnityEngine.UI;
 namespace AquaMai.Mods.Utils;
 
 [ConfigSection(
+    name: "屏幕位置调整",
     zh: """
         屏幕位置调整。适用于手台对不齐的情况，可以分别调整每个屏幕区域的位置
         在游戏中按键开启调整模式
@@ -29,9 +30,9 @@ namespace AquaMai.Mods.Utils;
 )]
 public class ScreenPositionAdjust
 {
-    [ConfigEntry(zh: "上屏紧贴着下屏", en: "Top screen is tightly attached to the bottom screen")]
+    [ConfigEntry(name: "上屏紧贴着下屏", en: "Top screen is tightly attached to the bottom screen")]
     public static readonly bool compactMode = false;
-    [ConfigEntry(zh: "进入调整模式的按键", en: "Key to enter adjustment mode")]
+    [ConfigEntry(name: "进入调整模式的按键", en: "Key to enter adjustment mode")]
     public static readonly KeyCodeOrName adjustKey = KeyCodeOrName.F10;
 
     private static GameObject root;
@@ -216,6 +217,7 @@ public class ScreenPositionAdjust
             camera.orthographic = true;
             camera.orthographicSize = 960;
             camera.transform.position = Camera.main.transform.position;
+            camera.farClipPlane = Camera.main.farClipPlane;
             Camera.main.transform.position = new Vector3(ConfigLoader.Config.GetSectionState(typeof(SinglePlayer)).Enabled ? 11451 - 540 : 11451, 19198, -800);
 
             for (int i = 0; i < 4; i++)

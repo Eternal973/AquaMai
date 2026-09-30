@@ -1,5 +1,6 @@
 ﻿using AquaMai.Config.Attributes;
 using AquaMai.Config.Types;
+using AquaMai.Core.Attributes;
 using AquaMai.Core.Helpers;
 using HarmonyLib;
 using MAI2.Util;
@@ -10,20 +11,22 @@ using Process;
 namespace AquaMai.Mods.UX;
 
 [ConfigSection(
-    en: "One key to retry (1.30+) or skip current chart in gameplay.",
-    zh: "在游戏中途一键重试（1.30+）或跳过当前谱面")]
+    name: "一键重开和跳过",
+    en: "One key to retry or skip current chart in gameplay.",
+    zh: "在游戏中途一键重试或跳过当前谱面")]
+[EnableGameVersion(23000)]
 public class OneKeyRetrySkip
 {
-    [ConfigEntry]
+    [ConfigEntry("重开按键")]
     public static readonly KeyCodeOrName retryKey = KeyCodeOrName.Service;
 
-    [ConfigEntry]
+    [ConfigEntry("重开长按")]
     public static readonly bool retryLongPress = false;
 
-    [ConfigEntry]
+    [ConfigEntry("跳关按键")]
     public static readonly KeyCodeOrName skipKey = KeyCodeOrName.Service;
 
-    [ConfigEntry]
+    [ConfigEntry("跳关长按")]
     public static readonly bool skipLongPress = true;
 
     private static bool dirty = false;

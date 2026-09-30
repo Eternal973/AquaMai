@@ -1,58 +1,113 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.IO.Pipes;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using AMDaemon;
 using AquaMai.Config.Attributes;
 using AquaMai.Config.Types;
+using AquaMai.Core.Attributes;
+using AquaMai.Core.Helpers;
+using AquaMai.Mods.Tweaks;
 using HarmonyLib;
 using HidLibrary;
+using Main;
+using Manager;
 using MelonLoader;
 using UnityEngine;
 
 namespace AquaMai.Mods.GameSystem;
 
 [ConfigSection(
-    en: "Input using ADX HID firmware (do not enable if you are not using ADX's HID firmware, be sure to delete the existing HID related DLL when enabled)",
-    zh: "使用 ADX HID 固件的自定义输入（如果你没有使用 ADX 的 HID 固件，请不要启用。启用时请务必删除现有 HID 相关 DLL）")]
+    name: "ADX HID 输入",
+    defaultOn: true,
+    en: "Input using ADX HID firmware (If you are not using ADX's HID firmware, enabling this won't do anything)",
+    zh: "使用 ADX HID 固件的自定义输入（没有 ADX 的话开了也不会加载，也没有坏处）")]
 public class AdxHidInput
 {
     private static HidDevice[] adxController = new HidDevice[2];
     private static byte[,] inputBuf = new byte[2, 32];
+    private static byte[,] inputBufPending = new byte[2, 32];
+    private static double[] td = [0, 0];
+    private static bool tdEnabled, keyEnabled, pipeEnabled;
 
     private static void HidInputThread(int p)
     {
         while (true)
         {
-            if (adxController[p] == null) continue;
+            if (adxController[p] == null) return;
             var report1P = adxController[p].Read();
             if (report1P.Status != HidDeviceData.ReadStatus.Success || report1P.Data.Length <= 13) continue;
             for (int i = 0; i < 14; i++)
             {
-                inputBuf[p, i] = report1P.Data[i];
+                var newState = report1P.Data[i];
+                if (newState == 1 && inputBuf[p, i] == 0)
+                {
+                    inputBufPending[p, i] = 1;
+                }
+                inputBuf[p, i] = newState;
             }
         }
     }
 
-    public static void OnBeforePatch()
+    private static void TdInit(int p)
     {
-        adxController[0] = HidDevices.Enumerate(0x2E3C, 0x5750).FirstOrDefault();
-        adxController[1] = HidDevices.Enumerate(0x2E4C, 0x5750).FirstOrDefault();
-
-        if (adxController[0] == null)
+        adxController[p].OpenDevice();
+        var arr = new byte[64];
+        arr[0] = 71;
+        adxController[p].WriteReportSync(new HidReport(64)
         {
-            MelonLogger.Msg("[HidInput] Open HID 1P Failed");
+            ReportId = 1,
+            Data = arr,
+        });
+        Thread.Sleep(100);
+        var rpt = adxController[p].ReadReportSync(1);
+        if (rpt.Data[0] != 71)
+        {
+            MelonLogger.Msg($"[HidInput] TD Init {p} Failed");
+            return;
         }
-        else
+        if (rpt.Data[5] < 110) return;
+        pipeEnabled = true;
+        if (!LedBrightnessControl.shouldEnableImplicitly)
+        {
+            LedBrightnessControl.shouldEnableImplicitly = true;
+            LedBrightnessControl.button1p *= 0.8f;
+            LedBrightnessControl.button2p *= 0.8f;
+            LedBrightnessControl.cabinet1p *= 0.8f;
+            LedBrightnessControl.cabinet2p *= 0.8f;
+        }
+        arr[0] = 0x73;
+        adxController[p].WriteReportSync(new HidReport(64)
+        {
+            ReportId = 1,
+            Data = arr,
+        });
+        Thread.Sleep(100);
+        rpt = adxController[p].ReadReportSync(1);
+        if (rpt.Data[0] != 0x73)
+        {
+            MelonLogger.Msg($"[HidInput] TD Init {p} Failed");
+            return;
+        }
+        if (rpt.Data[2] == 0) return;
+        td[p] = rpt.Data[2] * 0.25;
+        tdEnabled = true;
+        MelonLogger.Msg($"[HidInput] TD Init {p} OK, {td[p]} ms");
+    }
+
+    public static void OnBeforeEnableCheck()
+    {
+        adxController[0] = HidDevices.Enumerate(0x2E3C, [0x5750, 0x5767]).FirstOrDefault(it => !it.DevicePath.EndsWith("kbd"));
+        adxController[1] = HidDevices.Enumerate(0x2E4C, 0x5750).Concat(HidDevices.Enumerate(0x2E3C, 0x5768)).FirstOrDefault(it => !it.DevicePath.EndsWith("kbd"));
+
+        if (adxController[0] != null)
         {
             MelonLogger.Msg("[HidInput] Open HID 1P OK");
         }
 
-        if (adxController[1] == null)
-        {
-            MelonLogger.Msg("[HidInput] Open HID 2P Failed");
-        }
-        else
+        if (adxController[1] != null)
         {
             MelonLogger.Msg("[HidInput] Open HID 2P OK");
         }
@@ -60,101 +115,269 @@ public class AdxHidInput
         for (int i = 0; i < 2; i++)
         {
             if (adxController[i] == null) continue;
+            TdInit(i);
+            if (adxController[i].Attributes.ProductId is 0x5767 or 0x5768) continue;
+            if (io4Compact) continue;
+            keyEnabled = true;
             var p = i;
             Thread hidThread = new Thread(() => HidInputThread(p));
             hidThread.Start();
         }
     }
 
-    [ConfigEntry(zh: "按钮 1（向上的三角键）")]
-    private static readonly AdxKeyMap button1 = AdxKeyMap.Select1P;
-
-    [ConfigEntry(zh: "按钮 2（三角键中间的圆形按键）")]
-    private static readonly AdxKeyMap button2 = AdxKeyMap.Service;
-
-    [ConfigEntry(zh: "按钮 3（向下的三角键）")]
-    private static readonly AdxKeyMap button3 = AdxKeyMap.Select2P;
-
-    [ConfigEntry(zh: "按钮 4（最下方的圆形按键）")]
-    private static readonly AdxKeyMap button4 = AdxKeyMap.Test;
-
-    private static bool GetPushedByButton(int playerNo, InputId inputId)
+    public static void OnAfterPatch()
     {
-        var current = inputId.Value switch
-        {
-            "test" => AdxKeyMap.Test,
-            "service" => AdxKeyMap.Service,
-            "select" when playerNo == 0 => AdxKeyMap.Select1P,
-            "select" when playerNo == 1 => AdxKeyMap.Select2P,
-            _ => AdxKeyMap.None,
-        };
-
-        AdxKeyMap[] arr = [button1, button2, button3, button4];
-        if (current != AdxKeyMap.None)
-        {
-            for (int i = 0; i < 4; i++)
-            {
-                if (arr[i] != current) continue;
-                var keyIndex = 10 + i;
-                if (inputBuf[0, keyIndex] == 1 || inputBuf[1, keyIndex] == 1)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        return inputId.Value switch
-        {
-            "button_01" => inputBuf[playerNo, 5] == 1,
-            "button_02" => inputBuf[playerNo, 4] == 1,
-            "button_03" => inputBuf[playerNo, 3] == 1,
-            "button_04" => inputBuf[playerNo, 2] == 1,
-            "button_05" => inputBuf[playerNo, 9] == 1,
-            "button_06" => inputBuf[playerNo, 8] == 1,
-            "button_07" => inputBuf[playerNo, 7] == 1,
-            "button_08" => inputBuf[playerNo, 6] == 1,
-            _ => false,
-        };
+        if (!keyEnabled) return;
+        JvsSwitchHook.RegisterButtonChecker(IsButtonPushed);
+        JvsSwitchHook.RegisterAuxiliaryStateProvider(GetAuxiliaryState);
     }
 
-    [HarmonyPatch]
-    public static class Hook
+    private static bool IsButtonPushed(int playerNo, int buttonIndex1To8)
     {
-        public static IEnumerable<MethodBase> TargetMethods()
+        int bufIndex = buttonIndex1To8 switch
         {
-            var jvsSwitch = typeof(IO.Jvs).GetNestedType("JvsSwitch", BindingFlags.NonPublic | BindingFlags.Public);
-            return [jvsSwitch.GetMethod("Execute")];
+            1 => 5,
+            2 => 4,
+            3 => 3,
+            4 => 2,
+            5 => 9,
+            6 => 8,
+            7 => 7,
+            8 => 6,
+            _ => -1,
+        };
+        if (bufIndex < 0) return false;
+
+        if (inputBufPending[playerNo, bufIndex] == 1)
+        {
+            inputBufPending[playerNo, bufIndex] = 0;
+            return true;
+        }
+        return inputBuf[playerNo, bufIndex] == 1;
+    }
+
+    [ConfigEntry(name: "按钮 1（向上的三角键）")]
+    private static readonly IOKeyMap button1 = IOKeyMap.Select1P;
+
+    [ConfigEntry(name: "按钮 2（三角键中间的圆形按键）")]
+    private static readonly IOKeyMap button2 = IOKeyMap.Service;
+
+    [ConfigEntry(name: "按钮 3（向下的三角键）")]
+    private static readonly IOKeyMap button3 = IOKeyMap.Select2P;
+
+    [ConfigEntry(name: "按钮 4（最下方的圆形按键）")]
+    private static readonly IOKeyMap button4 = IOKeyMap.Test;
+
+    [ConfigEntry("IO4 兼容模式", zh: "如果你不知道这是什么，请勿开启", hideWhenDefault: true)]
+    private static readonly bool io4Compact = false;
+
+    private static AuxiliaryState GetAuxiliaryState()
+    {
+        var auxiliaryState = new AuxiliaryState();
+        IOKeyMap[] keyMaps = [button1, button2, button3, button4];
+        for (int i = 0; i < 4; i++)
+        {
+            var keyIndex = 10 + i;
+            var is1PPushed = inputBufPending[0, keyIndex] == 1 || inputBuf[0, keyIndex] == 1;
+            var is2PPushed = inputBufPending[1, keyIndex] == 1 || inputBuf[1, keyIndex] == 1;
+            inputBufPending[0, keyIndex] = 0;
+            inputBufPending[1, keyIndex] = 0;
+            switch (keyMaps[i])
+            {
+                case IOKeyMap.Select1P:
+                    auxiliaryState.select1P |= is1PPushed || is2PPushed;
+                    break;
+                case IOKeyMap.Select2P:
+                    auxiliaryState.select2P |= is1PPushed || is2PPushed;
+                    break;
+                case IOKeyMap.Select:
+                    auxiliaryState.select1P |= is1PPushed;
+                    auxiliaryState.select2P |= is2PPushed;
+                    break;
+                case IOKeyMap.Service:
+                    auxiliaryState.service = is1PPushed || is2PPushed;
+                    break;
+                case IOKeyMap.Test:
+                    auxiliaryState.test = is1PPushed || is2PPushed;
+                    break;
+            }
+        }
+        return auxiliaryState;
+    }
+
+    private static readonly Dictionary<uint, Queue<TouchData>> _queue = new();
+    private static readonly object _lockObject = new object();
+
+    private struct TouchData
+    {
+        public ulong Data;
+        public uint Counter;
+        public DateTimeOffset Timestamp;
+    }
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(Manager.InputManager), "SetNewTouchPanel")]
+    [EnableIf(nameof(tdEnabled))]
+    public static bool SetNewTouchPanel(uint index, ref ulong inputData, ref uint counter, ref bool __result)
+    {
+        var d = td[index];
+        if (d <= 0)
+        {
+            return true;
         }
 
-        public static bool Prefix(
-            int ____playerNo,
-            InputId ____inputId,
-            ref bool ____isStateOnOld2,
-            ref bool ____isStateOnOld,
-            ref bool ____isStateOn,
-            ref bool ____isTriggerOn,
-            ref bool ____isTriggerOff,
-            KeyCode ____subKey)
+        lock (_lockObject)
         {
-            var flag = GetPushedByButton(____playerNo, ____inputId);
-            // 不影响键盘
-            if (!flag) return true;
+            var currentTime = DateTimeOffset.UtcNow;
+            var dequeueCount = 0;
 
-            var isStateOnOld2 = ____isStateOnOld;
-            var isStateOnOld = ____isStateOn;
-
-            if (isStateOnOld2 && !isStateOnOld)
+            if (!_queue.ContainsKey(index))
             {
-                return true;
+                _queue[index] = new Queue<TouchData>();
             }
 
-            ____isStateOn = true;
-            ____isTriggerOn = !isStateOnOld;
-            ____isTriggerOff = false;
-            ____isStateOnOld2 = isStateOnOld2;
-            ____isStateOnOld = isStateOnOld;
-            return false;
+            _queue[index].Enqueue(new TouchData
+            {
+                Data = inputData,
+                Counter = counter,
+                Timestamp = currentTime,
+            });
+
+            var ret = false;
+            foreach (var data in _queue[index])
+            {
+                if ((currentTime - data.Timestamp).TotalMilliseconds < d) break;
+                ret = true;
+                dequeueCount++;
+
+                inputData = data.Data;
+                counter = data.Counter;
+            }
+
+            for (var i = 0; i < dequeueCount; i++)
+            {
+                _queue[index].Dequeue();
+            }
+
+            return ret;
+        }
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(GameMainObject), "Awake")]
+    [EnableIf(nameof(pipeEnabled))]
+    public static void OnGameMainObjectAwake(GameMainObject __instance)
+    {
+        __instance.gameObject.AddComponent<Pipe>();
+    }
+
+    private class Pipe : MonoBehaviour
+    {
+        private NamedPipeServerStream pipeServer;
+        private bool isConnecting;
+
+        private void Start()
+        {
+            StartPipeServer();
+        }
+
+        private void StartPipeServer()
+        {
+            if (isConnecting || (pipeServer != null && pipeServer.IsConnected))
+            {
+                return;
+            }
+
+            isConnecting = true;
+
+            new Thread(() =>
+            {
+                try
+                {
+                    try
+                    {
+                        pipeServer?.Dispose();
+                    }
+                    catch
+                    {
+                    }
+
+                    pipeServer = new NamedPipeServerStream(
+                        "AquaMai.AdxHidInput",
+                        PipeDirection.InOut,
+                        1,
+                        PipeTransmissionMode.Byte
+                    );
+
+                    pipeServer.WaitForConnection();
+                }
+                catch (Exception e)
+                {
+                    pipeServer = null;
+                    MelonLogger.Msg($"[HidInput] Pipe Server Error: {e.Message}");
+                }
+                finally
+                {
+                    isConnecting = false;
+                }
+            })
+            {
+                IsBackground = true
+            };
+        }
+
+        private void Update()
+        {
+            if (pipeServer == null || !pipeServer.IsConnected)
+            {
+                if (!isConnecting)
+                {
+                    StartPipeServer();
+                }
+                return;
+            }
+
+            try
+            {
+                var report = new byte[34 * 2 + 1];
+                report[0] = 1;
+                for (var player = 0; player < 2; player++)
+                {
+                    for (var area = 0; area < 34; area++)
+                    {
+                        report[1 + player * 34 + area] =
+                            InputManager.GetTouchPanelAreaPush(player, (InputManager.TouchPanelArea)area)
+                                ? (byte)1
+                                : (byte)0;
+                    }
+                }
+
+                pipeServer.Write(report, 0, report.Length);
+            }
+            catch
+            {
+                try
+                {
+                    pipeServer?.Dispose();
+                }
+                catch
+                {
+                }
+
+                pipeServer = null;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            try
+            {
+                pipeServer?.Dispose();
+            }
+            catch
+            {
+            }
+            pipeServer = null;
         }
     }
 }

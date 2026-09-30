@@ -7,9 +7,11 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using AquaMai.Config.Attributes;
+using AquaMai.Core.Attributes;
 using AquaMai.Core.Helpers;
 using AquaMai.Mods.Types;
 using HarmonyLib;
+using JetBrains.Annotations;
 using MelonLoader;
 using MelonLoader.TinyJSON;
 using Monitor;
@@ -23,6 +25,7 @@ namespace AquaMai.Mods.Enhancement;
     defaultOn: true,
     exampleHidden: true,
     zh: "加载服务器下发的资源（如果支持）")]
+[EnableGameVersion(23000)]
 public class ServerResources
 {
     [ConfigEntry]
@@ -36,8 +39,8 @@ public class ServerResources
 
     private class ServerResourcesEntry : ConditionalMessage
     {
-        public string url;
-        public string sign;
+        [CanBeNull] public string url = null;
+        [CanBeNull] public string sign = null;
     }
 
     private class ServerResourcesData

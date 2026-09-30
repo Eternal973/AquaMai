@@ -12,19 +12,28 @@ using UnityEngine.UI;
 namespace AquaMai.Mods.Fancy;
 
 [ConfigSection(
+    name: "自定义 Logo",
     en: "Replace the \"SEGA\" and \"ALL.Net\" logos with custom ones.",
     zh: "用自定义的图片替换「SEGA」和「ALL.Net」的标志")]
 public class CustomLogo
 {
     [ConfigEntry(
+        name: "SEGA Logo 目录",
         en: "Replace the \"SEGA\" logo with a random PNG image from this directory.",
         zh: "从此目录中随机选择一张 PNG 图片用于「SEGA」标志")]
     private static readonly string segaLogoDir = "LocalAssets/SegaLogo";
 
     [ConfigEntry(
+        name: "ALL.Net Logo 目录",
         en: "Replace the \"ALL.Net\" logo with a random PNG image from this directory.",
         zh: "从此目录中随机选择一张 PNG 图片用于「ALL.Net」标志")]
     private static readonly string allNetLogoDir = "LocalAssets/AllNetLogo";
+
+    [ConfigEntry(
+        name: "Logo 全屏幕",
+        en: "FullScreen the logo for the bottom screen.",
+        zh: "将标志全屏占满下屏幕")]
+    private static readonly bool logoFullScreen = false;
 
     private readonly static List<Sprite> segaLogo = [];
     private readonly static List<Sprite> allNetLogo = [];
@@ -62,6 +71,11 @@ public class CustomLogo
                 if (go == null)
                     go = monitor.transform.Find("Canvas/Main/UI_ADV_SegaAllNet/Null_all/SegaLogo");
                 go.GetComponent<Image>().sprite = logo;
+                if (!logoFullScreen) continue;
+                var rect = go.GetComponent<RectTransform>();
+                rect.sizeDelta = new Vector2(1080, 1080);
+                rect.offsetMin = new Vector2(-540, -540);
+                rect.offsetMax = new Vector2(540, 540);
             }
         }
 
@@ -74,6 +88,11 @@ public class CustomLogo
                 if (go == null)
                     go = monitor.transform.Find("Canvas/Main/UI_ADV_SegaAllNet/Null_all/AllNetLogo");
                 go.GetComponent<Image>().sprite = logo;
+                if (!logoFullScreen) continue;
+                var rect = go.GetComponent<RectTransform>();
+                rect.sizeDelta = new Vector2(1080, 1080);
+                rect.offsetMin = new Vector2(-540, -540);
+                rect.offsetMax = new Vector2(540, 540);
             }
         }
     }

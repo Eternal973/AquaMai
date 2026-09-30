@@ -60,6 +60,24 @@ namespace AquaMai.Core.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to AutoPlay On.
+        /// </summary>
+        public static string AutoplayOn {
+            get {
+                return ResourceManager.GetString("AutoplayOn", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Autoplay was used, score will not be saved..
+        /// </summary>
+        public static string AutoplayWasUsed {
+            get {
+                return ResourceManager.GetString("AutoplayWasUsed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to You are using AquaMai CI build version. This version is built from the latest mainline code and may contain undocumented configuration changes or potential issues..
         /// </summary>
         public static string CiBuildAlertContent {
@@ -263,6 +281,15 @@ namespace AquaMai.Core.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to AP =&gt; DXRating += {0}.
+        /// </summary>
+        public static string RatingUpWhenAP {
+            get {
+                return ResourceManager.GetString("RatingUpWhenAP", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to SSS+ =&gt; DXRating += {0}.
         /// </summary>
         public static string RatingUpWhenSSSp {
@@ -443,6 +470,19 @@ namespace AquaMai.Core.Resources {
         public static string TouchPanelReset {
             get {
                 return ResourceManager.GetString("TouchPanelReset", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ==================================================================!!!
+        ///Unable to save configuration file. 
+        ///Maybe the configuration file directory is read-only or other problems
+        ///The local configuration file may not reflect the latest added options
+        ///=====================================================================.
+        /// </summary>
+        public static string UnableSaveConfig {
+            get {
+                return ResourceManager.GetString("UnableSaveConfig", resourceCulture);
             }
         }
         

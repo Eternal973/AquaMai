@@ -76,6 +76,9 @@
     <data name="RatingUpWhenSSSp" xml:space="preserve">
         <value>推到鸟加可上 {0} 分</value>
     </data>
+    <data name="RatingUpWhenAP" xml:space="preserve">
+        <value>推到AP可上 {0} 分</value>
+    </data>
     <data name="Skip" xml:space="preserve">
         <value>跳过</value>
     </data>
@@ -155,5 +158,17 @@
 使用方向键移动位置
 当前移动速度：{1}，按下 [ 或 ] 键调整移动速度
 按下 {2} 切换调整的区块和退出调整模式</value>
+    </data>
+    <data name="AutoplayOn" xml:space="preserve">
+        <value>AutoPlay开启中</value>
+    </data>
+    <data name="AutoplayWasUsed" xml:space="preserve">
+        <value>Autoplay曾开启过，本曲成绩不会被上传。</value>
+    </data>
+    <data name="UnableSaveConfig" xml:space="preserve">
+        <value>=============================================!!!
+无法保存配置文件。或许是配置文件目录只读或者其他问题
+本地的配置文件可能无法反应最新添加的选项
+================================================</value>
     </data>
 </root>

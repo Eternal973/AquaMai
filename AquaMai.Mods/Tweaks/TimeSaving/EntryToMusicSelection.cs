@@ -16,11 +16,13 @@ using EnableConditionOperator = AquaMai.Core.Attributes.EnableConditionOperator;
 namespace AquaMai.Mods.Tweaks.TimeSaving;
 
 [ConfigSection(
+    name: "登录后直接选歌",
     en: "Directly enter the song selection screen after login.",
     zh: "登录完成后直接进入选歌界面")]
+[EnableGameVersion(23000)]
 public class EntryToMusicSelection
 {
-    [ConfigEntry(zh: "仅在游客模式启用", en: "Enable only in Guest Mode")]
+    [ConfigEntry(name: "仅游客模式", zh: "仅在游客模式启用", en: "Enable only in Guest Mode")]
     private static readonly bool enableOnlyInGuestMode = false;
     /*
      * Highly experimental, may well break some stuff
@@ -34,9 +36,10 @@ public class EntryToMusicSelection
     {
         if (enableOnlyInGuestMode)
         {
-            var userDatas = ((int[]) [0, 1]).Select(i => Singleton<UserDataManager>.Instance.GetUserData(i));
+            var userDatas = ((int[])[0, 1]).Select(i => Singleton<UserDataManager>.Instance.GetUserData(i));
             if (!userDatas.All(it => it.IsGuest())) return true;
         }
+        Shim.Set_GameManager_IsNormalMode(true);
         GameManager.SetMaxTrack();
         SharedInstances.GameMainObject.StartCoroutine(GraduallyIncreaseHeadphoneVolumeCoroutine());
         ___container.processManager.AddProcess(new MusicSelectProcess(___container));

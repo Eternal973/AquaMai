@@ -7,12 +7,14 @@ using Manager;
 using MelonLoader;
 using UnityEngine;
 using AquaMai.Config.Attributes;
+using AquaMai.Core;
 using AquaMai.Core.Helpers;
 using AquaMai.Core.Resources;
 
 namespace AquaMai.Mods.GameSystem;
 
 [ConfigSection(
+    name: "自定义摄像头",
     en: """
         Use custom CameraId rather than the default ones.
         If enabled, you can customize the game to use the specified camera.
@@ -24,28 +26,29 @@ namespace AquaMai.Mods.GameSystem;
 public class CustomCameraId
 {
     [ConfigEntry(
+        name: "打印摄像头列表",
         en: "Print the camera list to the log when starting, can be used as a basis for modification.",
         zh: "启动时打印摄像头列表到日志中，可以作为修改的依据")]
     public static bool printCameraList;
 
     [ConfigEntry(
         en: "DX Pass 1P.",
-        zh: "DX Pass 1P")]
+        name: "DX Pass 1P")]
     public static int leftQrCamera;
 
     [ConfigEntry(
         en: "DX Pass 2P.",
-        zh: "DX Pass 2P")]
+        name: "DX Pass 2P")]
     public static int rightQrCamera;
 
     [ConfigEntry(
         en: "Player Camera.",
-        zh: "玩家摄像头")]
+        name: "玩家摄像头")]
     public static int photoCamera;
 
     [ConfigEntry(
         en: "WeChat QRCode Camera.",
-        zh: "二维码扫描摄像头")]
+        name: "二维码扫描器")]
     public static int chimeCamera;
 
     private static readonly Dictionary<string, string> cameraTypeMap = new()
@@ -120,6 +123,33 @@ public class CustomCameraId
 
         CameraManager.IsReady = true;
         yield break;
+    }
+
+    private static CameraParameter _gameCameraParam;
+    private static CameraParameter _qrCameraParam;
+
+    // 修复分辨率问题，比如说扫码扫不出来
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(CameraManager), "Initialize")]
+    public static void SetCameraResolution(CameraManager __instance)
+    {
+        if (WebCamTexture.devices.TryGetValue(Enum.TryParse<CameraManager.CameraTypeEnum>("Chime", out _) ? chimeCamera : leftQrCamera, out var qrDevice))
+        {
+            WebCamTexture qrTexture = new WebCamTexture(qrDevice.name);
+            qrTexture.Play();
+            _qrCameraParam = new CameraParameter(qrTexture.width, qrTexture.height, (int)qrTexture.requestedFPS);
+            AccessTools.Field(typeof(CameraManager), "QrCameraParam").SetValue(__instance, _qrCameraParam);
+            qrTexture.Stop();
+        }
+
+        if (WebCamTexture.devices.TryGetValue(photoCamera, out var gameDevice))
+        {
+            WebCamTexture gameTexture = new WebCamTexture(gameDevice.name);
+            gameTexture.Play();
+            _gameCameraParam = new CameraParameter(gameTexture.width, gameTexture.height, (int)gameTexture.requestedFPS);
+            AccessTools.Field(typeof(CameraManager), "GameCameraParam").SetValue(__instance, _gameCameraParam);
+            gameTexture.Stop();
+        }
     }
 
     public static void OnBeforePatch()

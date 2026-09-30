@@ -24,10 +24,16 @@ using UnityEngine;
 namespace AquaMai.Mods.UX;
 
 [ConfigSection(
+    name: "打一首存一首",
     en: "Save immediate after playing a song.",
-    zh: "打完一首歌的时候立即向服务器保存成绩")]
+    zh: "打完一首歌的时候立即向服务器保存成绩",
+    defaultOn: true)]
+[EnableGameVersion(23000)]
 public class ImmediateSave
 {
+    [ConfigEntry(name: "显示保存中提示")]
+    public static readonly bool showTip = true;
+
     [HarmonyPatch]
     public static class RequestUploadUserPlayLogMaybeListData
     {
@@ -46,6 +52,22 @@ public class ImmediateSave
     }
 
     private static SavingUi ui;
+
+    private static bool _isPlaying = false;
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(GameProcess), "OnStart")]
+    public static void OnGameProcessStart(GameProcess __instance)
+    {
+        _isPlaying = true;
+    }
+
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(GameProcess), "OnRelease")]
+    public static void OnGameProcessRelease(GameProcess __instance)
+    {
+        _isPlaying = false;
+    }
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(ResultProcess), "OnStart")]
@@ -72,7 +94,7 @@ public class ImmediateSave
                 continue;
             }
 
-            if (ui == null)
+            if (ui == null && showTip)
             {
                 ui = SharedInstances.GameMainObject.gameObject.AddComponent<SavingUi>();
             }
@@ -86,10 +108,13 @@ public class ImmediateSave
                 },
                 delegate(PacketStatus err)
                 {
-                    SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
                     MelonLogger.Error("[ImmediateSave] Playlog save error");
                     MelonLogger.Error(err);
-                    MessageHelper.ShowMessage(Locale.PlaylogSaveError);
+                    if (!_isPlaying)
+                    {
+                        SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
+                        MessageHelper.ShowMessage(Locale.PlaylogSaveError);
+                    }
                     CheckSaveDone();
                 }));
             PacketHelper.StartPacket(Shim.CreatePacketUpsertUserAll(i, userData, delegate(int code)
@@ -101,18 +126,24 @@ public class ImmediateSave
                 }
                 else
                 {
-                    SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
                     MelonLogger.Error("[ImmediateSave] UserAll upsert error");
                     MelonLogger.Error(code);
-                    MessageHelper.ShowMessage(Locale.UserAllUpsertError);
+                    if (!_isPlaying)
+                    {
+                        SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
+                        MessageHelper.ShowMessage(Locale.UserAllUpsertError);
+                    }
                     CheckSaveDone();
                 }
             }, delegate(PacketStatus err)
             {
-                SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
                 MelonLogger.Error("[ImmediateSave] UserAll upsert error");
                 MelonLogger.Error(err);
-                MessageHelper.ShowMessage(Locale.UserAllUpsertError);
+                if (!_isPlaying)
+                {
+                    SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
+                    MessageHelper.ShowMessage(Locale.UserAllUpsertError);
+                }
                 CheckSaveDone();
             }));
         }
@@ -132,9 +163,7 @@ public class ImmediateSave
                 num = userData.RatingList.RatingList.Last().SingleRate;
             }
         }
-        catch
-        {
-        }
+        catch { }
 
         num = (float)Math.Ceiling((double)((num + 1f) / GameManager.TheoryRateBorderNum) * 10.0);
         float num2 = 0f;
@@ -145,14 +174,13 @@ public class ImmediateSave
                 num2 = userData.RatingList.NewRatingList.Last().SingleRate;
             }
         }
-        catch
-        {
-        }
+        catch { }
 
         num2 = (float)Math.Ceiling((double)((num2 + 1f) / GameManager.TheoryRateBorderNum) * 10.0);
         string logDateString = TimeManager.GetLogDateString(TimeManager.PlayBaseTime);
         string timeJp = (string.IsNullOrEmpty(userData.Detail.DailyBonusDate) ? TimeManager.GetLogDateString(0L) : userData.Detail.DailyBonusDate);
-        if (userData.IsEntry && userData.Detail.IsNetMember >= 2 && !GameManager.IsEventMode && TimeManager.GetUnixTime(logDateString) > TimeManager.GetUnixTime(timeJp) && Singleton<UserDataManager>.Instance.IsSingleUser() && !GameManager.IsFreedomMode && !GameManager.IsCourseMode && !DoneEntry.IsWeekdayBonus(userData))
+        if (userData.IsEntry && userData.Detail.IsNetMember >= 2 && !GameManager.IsEventMode && TimeManager.GetUnixTime(logDateString) > TimeManager.GetUnixTime(timeJp) &&
+            Singleton<UserDataManager>.Instance.IsSingleUser() && !GameManager.IsFreedomMode && !GameManager.IsCourseMode && !DoneEntry.IsWeekdayBonus(userData))
         {
             userData.Detail.DailyBonusDate = logDateString;
         }

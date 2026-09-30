@@ -2,7 +2,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Reflection;
 using AquaMai.Mods.Fix;
 using AquaMai.Core.Helpers;
@@ -16,16 +15,20 @@ using Process;
 using UnityEngine;
 using AquaMai.Config.Attributes;
 using AquaMai.Config.Types;
+using AquaMai.Core.Attributes;
+using MelonLoader;
 
 namespace AquaMai.Mods.UX.PracticeMode;
 
 [ConfigCollapseNamespace]
 [ConfigSection(
     en: "Practice Mode.",
-    zh: "练习模式")]
+    name: "练习模式")]
+[EnableGameVersion(23000)]
 public class PracticeMode
 {
     [ConfigEntry(
+        name: "按键",
         en: "Key to show Practice Mode UI.",
         zh: "显示练习模式 UI 的按键")]
     public static readonly KeyCodeOrName key = KeyCodeOrName.Test;
@@ -127,6 +130,19 @@ public class PracticeMode
         CurrentPlayMsec = msec;
     }
 
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(GameCtrl), "ForceNoteCollect")]
+    private static void ForceNoteCollect(NotesManager ___NoteMng)
+    {
+        foreach (NoteData note in ___NoteMng.getReader().GetNoteList())
+        {
+            if (note != null && note.type.isConnectSlide())
+            {
+                note.isJudged = true;
+            }
+        }
+    }
+
     public static double CurrentPlayMsec
     {
         get => NotesManager.GetCurrentMsec() - 91;
@@ -218,20 +234,34 @@ public class PracticeMode
     [HarmonyPostfix]
     public static void NotesManagerPostUpdateTimer(float msecStartGap)
     {
+#if DEBUG
+        MelonLogger.Msg($"[PracticeMode] NotesManager.StartPlay msecStartGap={msecStartGap}");
+#endif
         startGap = msecStartGap;
     }
+
+    private static bool isInAdvDemo = false;
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(AdvDemoProcess), nameof(AdvDemoProcess.OnStart))]
+    public static void AdvDemoProcessOnStart()
+    {
+        isInAdvDemo = true;
+    }
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(AdvDemoProcess), nameof(AdvDemoProcess.OnRelease))]
+    public static void AdvDemoProcessOnRelease()
+    {
+        isInAdvDemo = false;
+    }
+
 
     [HarmonyPatch(typeof(NotesManager), "UpdateTimer")]
     [HarmonyPrefix]
     public static bool NotesManagerPostUpdateTimer(bool ____isPlaying, Stopwatch ____stopwatch, ref float ____curMSec, ref float ____curMSecPre, float ____msecStartGap)
     {
-        if (GameManager.IsKaleidxScopeMode)
-        {
-            return true;
-        }
-        var stackTrace = new StackTrace(); // get call stack
-        var stackFrames = stackTrace.GetFrames(); // get method calls (frames)
-        if(stackFrames.Select(it => it.GetMethod().DeclaringType.Name).Contains("AdvDemoProcess"))
+        if (isInAdvDemo || GameManager.IsKaleidxScopeMode)
         {
             return true;
         }
@@ -239,20 +269,15 @@ public class PracticeMode
         if (startGap != -1f)
         {
             ____curMSec = startGap;
-            ____curMSecPre = startGap;
-            ____stopwatch?.Reset();
             startGap = -1f;
         }
-        else
+        ____curMSecPre = ____curMSec;
+        if (____isPlaying && ____stopwatch != null && !DebugFeature.Pause)
         {
-            ____curMSecPre = ____curMSec;
-            if (____isPlaying && ____stopwatch != null && !DebugFeature.Pause)
-            {
-                var num = (double)____stopwatch.ElapsedTicks / Stopwatch.Frequency * 1000.0 * speed;
-                ____curMSec += (float)num;
-                ____stopwatch.Reset();
-                ____stopwatch.Start();
-            }
+            var num = (double)____stopwatch.ElapsedTicks / Stopwatch.Frequency * 1000.0 * speed;
+            ____curMSec += (float)num;
+            ____stopwatch.Reset();
+            ____stopwatch.Start();
         }
 
         return false;

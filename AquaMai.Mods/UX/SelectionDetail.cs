@@ -20,6 +20,7 @@ namespace AquaMai.Mods.UX;
 
 [EnableGameVersion(23500)]
 [ConfigSection(
+    name: "歌曲详情",
     en: "Show detail of selected song in music selection screen.",
     zh: "选歌界面显示选择的歌曲的详情")]
 public class SelectionDetail
@@ -60,7 +61,7 @@ public class SelectionDetail
         var userData = Singleton<UserDataManager>.Instance.GetUserData(player);
         if (!userData.IsEntry) return;
 
-        if (____musicSelect.IsRandomIndex()) return;
+        if (____musicSelect.IsRandomIndex() && !____musicSelect.IsRandomSelected()) return;
 
         SelectData = ____musicSelect.GetMusic(0);
         if (SelectData == null) return;
@@ -69,6 +70,17 @@ public class SelectionDetail
         userGhost = Singleton<GhostManager>.Instance.GetGhostToEnum(ghostTarget);
 
         window[player] = player == 0 ? __instance.gameObject.AddComponent<P1Window>() : __instance.gameObject.AddComponent<P2Window>();
+    }
+
+    // 在随机选歌后， 不会调用 UpdateRivalScore，但是会调用 SetRivalScore
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(MusicSelectMonitor), "SetRivalScore")]
+    public static void AfterSetRivalScore(MusicSelectMonitor __instance, MusicSelectProcess ____musicSelect)
+    {
+        // 仅在随机选歌时生效
+        if (!____musicSelect.IsRandomSelected()) return;
+        // 手动触发窗口更新
+        ScrollUpdate(____musicSelect, __instance);
     }
 
     private class P1Window : Window
@@ -95,7 +107,16 @@ public class SelectionDetail
                 dataToShow.Add(Singleton<DataManager>.Instance.GetMusicGenre(SelectData.MusicData.genreName.id)?.genreName);
             if (SelectData.MusicData.AddVersion is not null)
                 dataToShow.Add(Singleton<DataManager>.Instance.GetMusicVersion(SelectData.MusicData.AddVersion.id)?.genreName);
-            var notesData = SelectData.MusicData.notesData[difficulty[player]];
+            
+            var difficulty = SelectionDetail.difficulty[player];
+            var notesData = SelectData.MusicData.notesData[difficulty];
+            // Fix for player choosing Re:master but the music doesn't have Re:master
+            if (!notesData.isEnable && difficulty == 4)
+            {
+                difficulty = 3;
+                notesData = SelectData.MusicData.notesData[difficulty];
+            }
+            
             dataToShow.Add($"{notesData?.level}.{notesData?.levelDecimal}");
 
             if (userGhost != null)
@@ -103,13 +124,21 @@ public class SelectionDetail
                 dataToShow.Add(string.Format(Locale.UserGhostAchievement, $"{userGhost.Achievement / 10000m:0.0000}"));
             }
 
-            var rate = CalcB50(SelectData.MusicData, difficulty[player]);
+            var rate = CalcB50(SelectData.MusicData, difficulty);
             if (rate > 0)
             {
                 dataToShow.Add(string.Format(Locale.RatingUpWhenSSSp, rate));
             }
+            else
+            {
+                rate = CalcB50(SelectData.MusicData, difficulty, true);
+                if (rate > 0)
+                {
+                    dataToShow.Add(string.Format(Locale.RatingUpWhenAP, rate));
+                }
+            }
 
-            var playCount = Shim.GetUserScoreList(userData)[difficulty[player]].FirstOrDefault(it => it.id == SelectData.MusicData.name.id)?.playcount ?? 0;
+            var playCount = Shim.GetUserScoreList(userData)[difficulty].FirstOrDefault(it => it.id == SelectData.MusicData.name.id)?.playcount ?? 0;
             if (playCount > 0)
             {
                 dataToShow.Add(string.Format(Locale.PlayCount, playCount));
@@ -131,12 +160,13 @@ public class SelectionDetail
             }
         }
 
-        private uint CalcB50(MusicData musicData, int difficulty)
+        private int CalcB50(MusicData musicData, int difficulty, bool ap = false)
         {
-            var theory = Shim.CreateUserRate(musicData.name.id, difficulty, 1010000, (uint)musicData.version, PlayComboflagID.None);
-            var list = theory.OldFlag ? userData.RatingList.RatingList : userData.RatingList.NewRatingList;
-            var maxCount = theory.OldFlag ? 35 : 15;
-
+            var musicId = musicData.name.id;
+            var aimRate = ap ? Shim.CreateUserRate(musicId, difficulty, 1010000, (uint)musicData.version, PlayComboflagID.AllPerfectPlus) :
+                Shim.CreateUserRate(musicId, difficulty, 1005000, (uint)musicData.version, PlayComboflagID.None);
+            var list = aimRate.OldFlag ? userData.RatingList.RatingList : userData.RatingList.NewRatingList;
+            var maxCount = aimRate.OldFlag ? 35 : 15;
             uint userLowRate = 0;
             if (list.Count == maxCount)
             {
@@ -144,19 +174,10 @@ public class SelectionDetail
                 userLowRate = rate.SingleRate;
             }
 
-            var userSongRate = list.FirstOrDefault(it => it.MusicId == musicData.name.id && it.Level == difficulty);
+            var userSongRate = list.FirstOrDefault(it => it.MusicId == musicId && it.Level == difficulty);
+            if (!userSongRate.Equals(default(UserRate))) userLowRate = userSongRate.SingleRate;
 
-            if (!userSongRate.Equals(default(UserRate)))
-            {
-                return theory.SingleRate - userSongRate.SingleRate;
-            }
-
-            if (theory.SingleRate > userLowRate)
-            {
-                return theory.SingleRate - userLowRate;
-            }
-
-            return 0;
+            return (int)aimRate.SingleRate - (int)userLowRate;
         }
 
         public void Close()
